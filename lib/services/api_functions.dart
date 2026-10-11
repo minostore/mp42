@@ -37,7 +37,7 @@ class HttpsCallable {
 
   static String get baseUrl {
     const configured = String.fromEnvironment('API_BASE_URL');
-    final url = configured.trim().isEmpty ? 'https://fahemny86.vercel.app' : configured.trim();
+    final url = configured.trim().isEmpty ? 'https://fahemt.online' : configured.trim();
     return url.replaceFirst(RegExp(r'/+$'), '');
   }
 
