@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../models/meeting.dart';
 import '../services/meeting_service.dart';
-import '../services/firestore_service.dart';
 
 class MeetingsTab extends StatefulWidget { const MeetingsTab({super.key}); @override State<MeetingsTab> createState()=>_MeetingsTabState(); }
 class _MeetingsTabState extends State<MeetingsTab> {
@@ -51,24 +50,8 @@ class _MeetingsTabState extends State<MeetingsTab> {
                     subtitle: Text(subtitle),
                     isThreeLine: true,
                     trailing: FilledButton(
-                      onPressed: can
-                          ? () async {
-                              final user =
-                                  FirebaseAuth.instance.currentUser;
-                              if (user == null) return;
-                              final p = await FirestoreService()
-                                  .getUserProfile(user.uid);
-                              if (p == null) return;
-                              await _service.join(
-                                m,
-                                displayName:
-                                    p.name.isEmpty ? 'مستخدم' : p.name,
-                                email: p.email,
-                                avatar: p.photoUrl,
-                                moderator: p.isAdmin || p.isMofahhem,
-                              );
-                            }
-                          : null,
+                      // مفعّل دائمًا: عند الضغط تُعرض أسباب عدم القدرة على الدخول
+                      onPressed: () => _service.joinFlow(context, m),
                       child: Text(can ? 'دخول' : 'لم يبدأ'),
                     ),
                   ),

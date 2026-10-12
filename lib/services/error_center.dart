@@ -91,6 +91,13 @@ class ErrorCenter {
     return err;
   }
 
+  /// يعرض خطأً جاهزًا (عنوان + سبب + حل) فورًا بدون تحويله.
+  AppError push(AppError err) {
+    debugPrint('[خطأ${err.where != null ? ' — ${err.where}' : ''}] ${err.title}\nالسبب: ${err.cause}\nالحل: ${err.fix}\n${err.technical}');
+    errors.value = [err, ...errors.value].take(3).toList();
+    return err;
+  }
+
   /// أخطاء الاجتماع القادمة من مكتبة Jitsi/JaaS (تظهر عند إنهاء الاتصال بسبب خطأ).
   void reportMeetingError(Object? error, {String? where}) {
     if (error == null) return;

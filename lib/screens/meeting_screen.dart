@@ -1,9 +1,7 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../models/meeting.dart';
 import '../services/meeting_service.dart';
-import '../services/firestore_service.dart';
 
 class MeetingScreen extends StatelessWidget {
   final String requestId;
@@ -36,15 +34,10 @@ class MeetingScreen extends StatelessWidget {
                   Text(time == null ? 'لم يتم تحديد الموعد' : time.toLocal().toString(), textAlign: TextAlign.center),
                   const SizedBox(height: 24),
                   FilledButton.icon(
-                    onPressed: canJoin ? () async {
-                      final uid = FirebaseAuth.instance.currentUser?.uid;
-                      if (uid == null) return;
-                      final profile = await FirestoreService().getUserProfile(uid);
-                      if (profile == null) return;
-                      await MeetingService().join(meeting, displayName: profile.name.isEmpty ? 'مستخدم' : profile.name, email: profile.email, avatar: profile.photoUrl, moderator: profile.isAdmin || profile.isMofahhem);
-                    } : null,
+                    // الزر يبقى مفعّلًا دائمًا: لو الدخول غير متاح يظهر السبب بدل الصمت
+                    onPressed: () => MeetingService().joinFlow(context, meeting),
                     icon: const Icon(Icons.play_arrow),
-                    label: Text(canJoin ? 'دخول المحاضرة' : 'لم يبدأ الموعد بعد'),
+                    label: Text(canJoin ? 'دخول المحاضرة' : 'دخول المحاضرة (خارج الموعد)'),
                   ),
                 ],
               ),
