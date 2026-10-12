@@ -35,21 +35,25 @@ class HttpsCallable {
   /// يُضبط من ErrorCenter.install(): أي خطأ تقني (له سبب/حل) يظهر فورًا للمستخدم.
   static void Function(FirebaseFunctionsException e)? onTechnicalError;
 
-  static String get baseUrl {
-    const configured = String.fromEnvironment('API_BASE_URL');
-    final url = configured.trim().isEmpty ? 'https://fahemt.online' : configured.trim();
-    return url.replaceFirst(RegExp(r'/+$'), '');
-  }
+  // الدومين النهائي المعتمد للمنصة؛ لا نستخدم رابط Preview حتى لو وُجد dart-define قديم.
+  static String get baseUrl => 'https://fahemt.online';
 
-  // الدومين الحالي يُقرأ من Firestore (settings/app.apiBaseUrl) فلا يلزم إعادة بناء التطبيق عند تغيير الدومين.
+  // لا نسمح لإعداد قديم في Firestore بتوجيه طلبات المصادقة إلى Preview أو دومين مختلف.
+  // يمكن أن يكون الإعداد مطابقًا للدومين الأساسي فقط؛ الدومين المعتمد حاليًا fahemt.online.
   static String? _remoteBase;
 
   static Future<String> _resolveBase({bool force = false}) async {
     if (force || _remoteBase == null) {
       try {
         final snap = await FirebaseFirestore.instance.collection('settings').doc('app').get().timeout(const Duration(seconds: 5));
-        final u = (snap.data()?['apiBaseUrl'] ?? '').toString().trim();
-        if (u.startsWith('http')) _remoteBase = u.replaceFirst(RegExp(r'/+$'), '');
+        final raw = (snap.data()?['apiBaseUrl'] ?? '').toString().trim();
+        final candidate = Uri.tryParse(raw);
+        final configuredUri = Uri.parse(baseUrl);
+        if (candidate != null && candidate.scheme == 'https' &&
+            candidate.host.isNotEmpty && candidate.host == configuredUri.host &&
+            (candidate.path.isEmpty || candidate.path == '/')) {
+          _remoteBase = candidate.replace(path: '', query: null, fragment: null).toString().replaceFirst(RegExp(r'/+$'), '');
+        }
       } catch (_) {}
     }
     return _remoteBase ?? baseUrl;
@@ -76,12 +80,19 @@ class HttpsCallable {
       final base = await _resolveBase();
       try {
         response = await _post(base, token, parameters);
-        // بعض إعدادات Vercel تعيد 308 بسبب توحيد الشرطة المائلة؛ جرّب المسار ذي الشرطة مرة واحدة.
-        if (response.statusCode == 308) {
+        // اتبع 308 يدويًا مع الحفاظ على POST والـ body؛ بعض الدومينات تحول apex إلى www.
+        // لا نرسل Firebase ID token إلا إلى دومين المنصة المعروف عبر HTTPS.
+        if (response.statusCode == 308 || response.statusCode == 307) {
           final location = response.headers['location'];
-          if (location != null && location.isNotEmpty) {
-            final redirected = Uri.tryParse(location);
-            if (redirected != null && redirected.host == Uri.parse(base).host) {
+          if (location != null && location.trim().isNotEmpty) {
+            final parsedLocation = Uri.tryParse(location.trim());
+            final redirected = parsedLocation == null ? null : Uri.parse(base).resolveUri(parsedLocation);
+            final allowedHosts = <String>{
+              Uri.parse(base).host,
+              'fahemt.online',
+              'www.fahemt.online',
+            };
+            if (redirected != null && redirected.scheme == 'https' && allowedHosts.contains(redirected.host)) {
               response = await http.post(redirected, headers: {
                 'Content-Type': 'application/json',
                 if (token != null) 'Authorization': 'Bearer $token',
@@ -159,7 +170,7 @@ class HttpsCallable {
           fix = 'أعد المحاولة، ولو تكرر افتح Vercel ← Logs لمعرفة الخطوة البطيئة.';
         } else if (s == 308) {
           cause = 'Vercel يعيد توجيه طلب POST بدل تشغيل الدالة؛ غالبًا إعداد الشرطة المائلة أو الدومين الأساسي.';
-          fix = 'تمت إضافة معالجة لإعادة التوجيه في التطبيق. انشر تحديث المنصة وراجع أن الدومين في settings/app.apiBaseUrl هو الدومين النهائي مباشرة وليس رابط Preview أو رابطًا يعيد التوجيه.';
+          fix = 'تم تحديث التطبيق لاتباع تحويل 308/307 إلى الدومين الأساسي المعروف مع الحفاظ على POST. تأكد أن settings/app.apiBaseUrl = https://fahemt.online، وأن fahemt.online أو www.fahemt.online هو الدومين الأساسي (Primary Domain) في Vercel، ثم أعد نشر المنصة والتطبيق.';
         } else {
           cause = 'الدالة انهارت قبل أن ترد، أو آخر نشر فشل.';
           fix = 'Vercel ← Deployments (تأكد أن آخر نسخة Ready) ثم Logs لمسار /api/fn/$name.';
