@@ -195,8 +195,8 @@ class _GroupSessionScreenState extends State<GroupSessionScreen> {
       );
       if (mounted) setState(() => _recordHint = hint);
     } catch (e, st) {
-      if (e is! FirebaseFunctionsException) ErrorCenter.instance.report(e, where: 'دخول الجلسة المباشرة', stack: st);
-      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final details = ErrorCenter.instance.report(e, where: 'دخول الجلسة المباشرة', stack: st).toReport();
+      if (mounted) setState(() => _error = details);
     } finally {
       if (mounted) setState(() => _joining = false);
     }
@@ -215,7 +215,7 @@ class _GroupSessionScreenState extends State<GroupSessionScreen> {
               const Icon(Icons.video_call, size: 80),
               const SizedBox(height: 12),
               if (_joining) const CircularProgressIndicator(),
-              if (_error != null) Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))),
+              if (_error != null) Container(width: double.infinity, margin: const EdgeInsets.symmetric(vertical: 12), padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: Colors.red.withOpacity(.08), border: Border.all(color: Colors.red.shade300), borderRadius: BorderRadius.circular(12)), child: SelectableText(_error!, textDirection: TextDirection.rtl, textAlign: TextAlign.start, style: const TextStyle(color: Colors.red, height: 1.5))),
               if (_recordHint) const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('هذه الجلسة مسجلة: اضغط زر التسجيل داخل الاجتماع لبدء التسجيل.', textAlign: TextAlign.center)),
               const SizedBox(height: 12),
               FilledButton.icon(onPressed: _joining ? null : _join, icon: const Icon(Icons.play_arrow), label: const Text('دخول الاجتماع')),
