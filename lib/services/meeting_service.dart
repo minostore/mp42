@@ -1,24 +1,16 @@
-import 'dart:async';
-import 'dart:io' show InternetAddress;
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:jitsi_meet_flutter_sdk/jitsi_meet_flutter_sdk.dart';
 import 'api_functions.dart';
 import 'firestore_service.dart';
-import 'jaas_token_inspector.dart';
 import '../models/meeting.dart';
 import 'error_center.dart';
+import '../screens/agora_meeting_room.dart';
 
 class MeetingService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
-  final JitsiMeet _jitsi = JitsiMeet();
-
-  /// يُستخدم فقط لو السيرفر لم يرجع appId/room في رده.
-  static const String _fallbackAppId = 'vpaas-magic-cookie-4ddd1f4050174a1b89a6ce9a82ade034';
 
   Stream<List<Meeting>> watchUserMeetings(String uid) {
     final a = _db.collection('istifhams').where('mustafhemId', isEqualTo: uid).where('status', whereIn: ['paid','completed']).snapshots();
@@ -119,9 +111,10 @@ class MeetingService {
     AppError? err;
     try {
       err = await _run(
+        context,
         meeting,
         status,
-        // أخطاء تحدث متأخرًا (بعد فتح شاشة Jitsi): تظهر عند رجوع المستخدم للتطبيق
+        // أخطاء تحدث متأخرًا (بعد فتح شاشة Agora): تظهر عند رجوع المستخدم للتطبيق
         (late) => _present(context, late, cardsBefore: cardsBefore),
       );
     } catch (e, st) {
@@ -139,7 +132,7 @@ class MeetingService {
       AppError(title: title, cause: cause, fix: fix, technical: tech, where: where ?? _where);
 
   /// يرجع null لو بدأ الاتصال فعلًا، أو AppError فيه السبب الحقيقي.
-  Future<AppError?> _run(Meeting listed, ValueNotifier<String> status, void Function(AppError) onLateError) async {
+  Future<AppError?> _run(BuildContext context, Meeting listed, ValueNotifier<String> status, void Function(AppError) onLateError) async {
     // 1) تسجيل الدخول
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -224,181 +217,56 @@ class MeetingService {
           tech: 'now=${now.toIso8601String()} closesAt=${closesAt.toIso8601String()}');
     }
 
-    // 5) الاتصال بخوادم الاجتماعات
-    status.value = 'جارٍ فحص الاتصال بخوادم الاجتماعات...';
-    try {
-      final r = await InternetAddress.lookup('8x8.vc').timeout(const Duration(seconds: 8));
-      if (r.isEmpty) throw StateError('DNS returned no address for 8x8.vc');
-    } on TimeoutException {
-      return _err('خوادم الاجتماعات لا تستجيب', 'الجهاز لم يستطع الوصول إلى 8x8.vc خلال 8 ثوانٍ (إنترنت ضعيف جدًا).',
-          'جرّب شبكة أخرى (واي فاي/بيانات) ثم أعد المحاولة.', tech: 'DNS lookup 8x8.vc timeout');
-    } catch (e) {
-      return _err('لا يوجد اتصال بخوادم الاجتماعات', 'الجهاز لا يستطيع الوصول إلى 8x8.vc: الإنترنت مقطوع، أو الشبكة/VPN/DNS تحجب هذا الدومين.',
-          'تأكد من الإنترنت، وأوقف أي VPN أو DNS خاص وجرّب شبكة أخرى.', tech: e.toString());
-    }
-
-    // 6) التوكن
-    status.value = 'جارٍ الحصول على تصريح الدخول...';
-    final roomName = 'Fahimni_${meeting.id}';
+    // 5) طلب Agora RTC Token من الخادم (لا يُرسل App Certificate إلى التطبيق).
+    status.value = 'جارٍ تجهيز اتصال Agora...';
     dynamic resp;
     try {
       final result = await FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('getJaasMeetingToken')
-          .call<dynamic>({'room': roomName, 'requestId': meeting.id});
+          .httpsCallable('getAgoraMeetingToken')
+          .call<dynamic>({'requestId': meeting.id});
       resp = result.data;
     } catch (e, st) {
-      return ErrorCenter.explain(e, where: 'توكن الاجتماع (JaaS)', stack: st);
+      return ErrorCenter.explain(e, where: 'توكن الاجتماع (Agora)', stack: st);
     }
+
     final map = resp is Map ? resp : const {};
-    final token = (map['token'] ?? '').toString();
-    if (token.isEmpty) {
-      return _err('السيرفر لم يرجع توكن الدخول',
-          'الدالة getJaasMeetingToken ردّت بدون token (غالبًا متغيرات JAAS_* ناقصة أو الدالة على Vercel قديمة).',
-          'راجع JAAS_APP_ID و JAAS_KEY_ID و JAAS_PRIVATE_KEY في بيئة الدوال ثم أعد النشر.',
-          tech: 'response=${resp is Map ? 'keys=${resp.keys.toList()}' : resp.runtimeType}', where: 'توكن الاجتماع (JaaS)');
+    final appId = (map['appId'] ?? '').toString().trim();
+    final channel = (map['channel'] ?? '').toString().trim();
+    final token = (map['token'] ?? '').toString().trim();
+    final uidValue = map['uid'];
+    final int agoraUid = uidValue is num ? uidValue.toInt() : int.tryParse('$uidValue') ?? 0;
+
+    if (appId.isEmpty || channel.isEmpty || token.isEmpty || agoraUid <= 0) {
+      return _err(
+        'بيانات Agora غير مكتملة',
+        'الخادم لم يُرجع appId أو channel أو token أو uid صالحًا.',
+        'أضف AGORA_APP_ID وAGORA_APP_CERTIFICATE إلى بيئة Firebase Functions ثم أعد نشر الدوال.',
+        tech: 'responseKeys=${map is Map ? map.keys.toList() : resp.runtimeType}',
+        where: 'توكن الاجتماع (Agora)',
+      );
     }
 
-    // نستخدم appId/room كما أرجعهما السيرفر؛ هذا يمنع اختلاف الـ App ID بين التطبيق والسيرفر.
-    final serverRoom = (map['room'] ?? '').toString();
-    final serverAppId = (map['appId'] ?? '').toString();
-    final String fullRoom;
-    if (serverRoom.contains('/')) {
-      fullRoom = serverRoom;
-    } else {
-      fullRoom = '${serverAppId.isNotEmpty ? serverAppId : _fallbackAppId}/$roomName';
-    }
-    final slash = fullRoom.indexOf('/');
-    final appIdInRoom = fullRoom.substring(0, slash);
-    final bareRoom = fullRoom.substring(slash + 1);
-
-    // 7) فحص التوكن محليًا قبل فتح Jitsi
-    final report = JaasTokenInspector.inspect(token, expectedAppId: appIdInRoom, roomName: bareRoom);
-    if (report.isBlocking) {
-      return _err('التوكن غير صالح لدخول هذا الاجتماع',
-          report.blocking.join('\n'),
-          'المشكلة في إعدادات السيرفر (JAAS_APP_ID / JAAS_KEY_ID / JAAS_PRIVATE_KEY). صحّحها ثم Redeploy وجرّب.',
-          tech: report.summary, where: 'توكن الاجتماع (JaaS)');
-    }
-
-    // 8) تشغيل Jitsi
-    status.value = 'جارٍ فتح غرفة الاجتماع...';
-    return _launch(
-      room: fullRoom,
-      token: token,
-      displayName: name.isEmpty ? 'مستخدم' : name,
-      email: email,
-      avatar: avatar,
-      moderator: moderator,
-      report: report,
-      onLateError: onLateError,
-    );
-  }
-
-  Future<AppError?> _launch({
-    required String room,
-    required String token,
-    required String displayName,
-    String? email,
-    String? avatar,
-    required bool moderator,
-    required JaasTokenReport report,
-    required void Function(AppError) onLateError,
-  }) async {
-    var willJoin = false;
-    var joined = false;
-    final launchedAt = DateTime.now();
-
-    final options = JitsiMeetConferenceOptions(
-      room: room,
-      token: token,
-      serverURL: 'https://8x8.vc',
-      configOverrides: {
-        'prejoinPageEnabled': false,
-        'disableInviteFunctions': true,
-        'startWithAudioMuted': false,
-        'startWithVideoMuted': false,
-      },
-      featureFlags: {
-        FeatureFlags.recordingEnabled: moderator,
-        FeatureFlags.androidScreenSharingEnabled: false,
-        FeatureFlags.iosScreenSharingEnabled: false,
-      },
-      userInfo: JitsiMeetUserInfo(displayName: displayName, email: email, avatar: avatar),
-    );
-
-    // لو لم يكتمل الدخول خلال 30 ثانية نعرض السبب المحتمل بدل الصمت
-    final Timer watchdog = Timer(const Duration(seconds: 30), () {
-      if (joined) return;
-      onLateError(AppError(
-        title: willJoin ? 'بدأ الاتصال بالغرفة ولم يكتمل' : 'لم تبدأ المحاضرة خلال 30 ثانية',
-        cause: willJoin
-            ? 'Jitsi بدأ الدخول لكن الاتصال لم يكتمل: إنترنت ضعيف، أو JaaS لم يقبل التوكن/الغرفة، أو الغرفة معلّقة لحين دخول المُفهّم.${_hints(report)}'
-            : 'لم تصل من Jitsi أي إشارة دخول: إنترنت ضعيف، أو صلاحيتا الكاميرا/المايك مرفوضتان، أو الـ SDK لم يُبنَ بشكل صحيح في هذه النسخة.${_hints(report)}',
-        fix: 'تأكد من الإنترنت، وافتح إعدادات الهاتف ← التطبيقات ← مسار ← الأذونات وفعّل الكاميرا والميكروفون، ثم ثبّت نسخة جديدة من الـ APK وجرّب.',
-        technical: 'willJoin=$willJoin joined=$joined room=$room | ${report.summary}',
-        where: _where,
-      ));
-    });
-
+    // 6) فتح غرفة Agora داخل التطبيق.
+    status.value = 'جارٍ فتح غرفة المحاضرة...';
     try {
-      final dynamic res = await Future<dynamic>.sync(() => _jitsi.join(
-            options,
-            JitsiMeetEventListener(
-              conferenceWillJoin: (url) {
-                willJoin = true;
-              },
-              conferenceJoined: (url) {
-                joined = true;
-                watchdog.cancel();
-              },
-              conferenceTerminated: (url, error) {
-                watchdog.cancel();
-                final text = (error ?? '').toString().trim();
-                if (text.isNotEmpty) {
-                  onLateError(ErrorCenter.explainMeetingError(error, where: 'المحاضرة', hints: report.warnings));
-                } else if (!joined) {
-                  final secs = DateTime.now().difference(launchedAt).inSeconds;
-                  onLateError(AppError(
-                    title: 'أُغلقت شاشة الاجتماع قبل الدخول',
-                    cause: 'Jitsi أنهى الاتصال بعد $secs ثانية بدون أي رسالة خطأ. أشهر الأسباب: JaaS رفض التوكن أو الغرفة، أو انقطع الإنترنت لحظة الدخول.${_hints(report)}',
-                    fix: 'أعد المحاولة مرة. لو تكرر انسخ التفاصيل وأرسلها للمطوّر، وراجع JaaS Console ← Usage/Logs.',
-                    technical: 'terminated before conferenceJoined (willJoin=$willJoin) url=$url room=$room | ${report.summary}',
-                    where: _where,
-                  ));
-                }
-                // لو دخل ثم خرج بدون خطأ فهذا خروج عادي، لا نعرض شيئًا.
-              },
-            ),
-          )).timeout(const Duration(seconds: 25));
-
-      // بعض إصدارات الـ SDK ترجع JitsiMeetingResponse فيها isSuccess/message
-      try {
-        if (res != null && res.isSuccess == false) {
-          watchdog.cancel();
-          return AppError(
-            title: 'تعذّر فتح شاشة الاجتماع',
-            cause: 'مكتبة Jitsi رفضت تشغيل الاتصال.',
-            fix: 'أعد المحاولة، ولو تكرر ثبّت نسخة APK جديدة.',
-            technical: 'message=${res.message} error=${res.error}',
-            where: _where,
-          );
-        }
-      } catch (_) {}
+      await Navigator.of(context, rootNavigator: true).push<void>(
+        MaterialPageRoute(
+          builder: (_) => AgoraMeetingRoom(
+            appId: appId,
+            channel: channel,
+            token: token,
+            uid: agoraUid,
+            displayName: name.isEmpty ? 'مستخدم' : name,
+            moderator: moderator,
+          ),
+        ),
+      );
       return null;
-    } on TimeoutException {
-      watchdog.cancel();
-      return _err('مكتبة Jitsi لم ترد على أمر التشغيل',
-          'أمر join لم يرجع خلال 25 ثانية. غالبًا الـ plugin لم يُبنَ داخل الـ APK بشكل سليم أو الـ Activity لم تُفتح.',
-          'نفّذ flutter clean ثم ابنِ APK جديد وثبّته، وتأكد أن الأذونات (كاميرا/مايك) مفعّلة.',
-          tech: 'JitsiMeet.join timeout room=$room');
     } catch (e, st) {
-      watchdog.cancel();
-      return ErrorCenter.explain(e, where: '$_where — تشغيل Jitsi', stack: st);
+      return ErrorCenter.explain(e, where: 'تشغيل Agora RTC', stack: st);
     }
   }
 
-  static String _hints(JaasTokenReport r) =>
-      r.warnings.isEmpty ? '' : '\nملاحظات فحص التوكن: ${r.warnings.join(' | ')}';
 }
 
 /// نافذة تعرض السبب الحقيقي والمطلوب للحل، مع نسخ التفاصيل.

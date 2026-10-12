@@ -1,4 +1,6 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
+const AGORA_APP_CERTIFICATE = defineSecret("AGORA_APP_CERTIFICATE");
 const { onDocumentCreated, onDocumentUpdated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 const crypto = require('crypto');
@@ -543,6 +545,57 @@ exports.expireUserBans = require('firebase-functions/v2/scheduler').onSchedule('
 });
 
 /** Mint a short-lived JaaS JWT for an authenticated app user. */
+
+/**
+ * إصدار Agora RTC Token قصير الصلاحية. لا ترسل App Certificate إلى العميل مطلقًا.
+ * Environment: AGORA_APP_ID, AGORA_APP_CERTIFICATE.
+ */
+exports.getAgoraMeetingToken = onCall({ secrets: [AGORA_APP_CERTIFICATE] }, async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'لازم تسجل الدخول أولاً');
+
+  const profileSnap = await db.collection('users').doc(uid).get();
+  const profile = profileSnap.data() || {};
+  if (profile.status === 'blocked') throw new HttpsError('permission-denied', 'الحساب محظور');
+
+  const requestId = String(request.data?.requestId || '').trim();
+  if (!requestId) throw new HttpsError('invalid-argument', 'معرّف المحاضرة مطلوب');
+
+  const meetingSnap = await db.collection('istifhams').doc(requestId).get();
+  if (!meetingSnap.exists) throw new HttpsError('not-found', 'المحاضرة غير موجودة');
+  const meeting = meetingSnap.data() || {};
+  const isAdmin = profile.isAdmin === true || profile.role === 'admin';
+  const participant = uid === meeting.mustafhemId || uid === meeting.mufhemId || isAdmin;
+  if (!participant) throw new HttpsError('permission-denied', 'لست من أطراف هذه المحاضرة');
+  if (meeting.status !== 'paid' && !isAdmin) throw new HttpsError('failed-precondition', 'المحاضرة لم يتم تفعيلها بالدفع');
+  const startMs = meeting.meetingTime?.toDate ? meeting.meetingTime.toDate().getTime() : new Date(meeting.meetingTime || '').getTime();
+  if (Number.isFinite(startMs) && Date.now() < startMs - 5 * 60 * 1000 && !isAdmin) {
+    throw new HttpsError('failed-precondition', 'لم يحن موعد المحاضرة بعد');
+  }
+  if (Number.isFinite(startMs) && Date.now() > startMs + 6 * 60 * 60 * 1000 && !isAdmin) {
+    throw new HttpsError('failed-precondition', 'انتهت مدة الدخول للمحاضرة');
+  }
+
+  const appId = String(process.env.AGORA_APP_ID || '').trim();
+  const certificate = String(AGORA_APP_CERTIFICATE.value() || '').trim();
+  if (!appId || !certificate) {
+    throw new HttpsError('failed-precondition', 'إعدادات Agora ناقصة على الخادم: AGORA_APP_ID وAGORA_APP_CERTIFICATE');
+  }
+
+  const { RtcTokenBuilder, RtcRole } = require('agora-access-token');
+  const channel = `Fahimni_${requestId}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+  // Agora UID must be a positive integer. Deterministic hash keeps the same account UID per meeting.
+  let numericUid = 0;
+  for (const ch of `${uid}:${requestId}`) numericUid = (Math.imul(numericUid, 31) + ch.charCodeAt(0)) >>> 0;
+  numericUid = (numericUid % 2147483646) + 1;
+  const now = Math.floor(Date.now() / 1000);
+  const expire = now + 60 * 60;
+  const token = RtcTokenBuilder.buildTokenWithUid(
+    appId, certificate, channel, numericUid, RtcRole.PUBLISHER, expire
+  );
+  return { appId, channel, uid: numericUid, token, expiresAt: expire };
+});
+
 exports.getJaasMeetingToken = onCall(async (request) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'لازم تسجل الدخول أولاً');

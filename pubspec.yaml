@@ -36,7 +36,8 @@ dependencies:
   shared_preferences: ^2.3.2
   url_launcher: ^6.3.1
   image_picker: ^1.1.2
-  jitsi_meet_flutter_sdk: ^11.6.0
+  agora_rtc_engine: ^6.3.2
+  permission_handler: ^11.3.1
   firebase_messaging: 15.1.5
   flutter_local_notifications: 17.2.3
   camera: 0.11.0+2
