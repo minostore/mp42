@@ -28,7 +28,7 @@ class MeetingService {
     } catch (e, st) {
       // نكمل الدخول، لكن بدون توكن لن يعمل التسجيل/الإشراف: نُظهر السبب فورًا
       ErrorCenter.instance.report(e, where: 'توكن الاجتماع (JaaS)', stack: st);
-      rethrow; // أعد الخطأ للشاشة حتى تعرض السبب والحل للمستخدم
+      return; // لا ندخل بدون توكن صالح
     }
     final options = JitsiMeetConferenceOptions(
       room: '$_jaasRoomPrefix${meeting.id}',

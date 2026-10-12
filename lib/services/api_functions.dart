@@ -35,21 +35,24 @@ class HttpsCallable {
   /// يُضبط من ErrorCenter.install(): أي خطأ تقني (له سبب/حل) يظهر فورًا للمستخدم.
   static void Function(FirebaseFunctionsException e)? onTechnicalError;
 
-  static String get baseUrl {
-    const configured = String.fromEnvironment('API_BASE_URL');
-    final url = configured.trim().isEmpty ? 'https://fahemt.online' : configured.trim();
-    return url.replaceFirst(RegExp(r'/+$'), '');
-  }
+  // الدومين النهائي المعتمد للمنصة؛ لا نستخدم رابط Preview حتى لو وُجد dart-define قديم.
+  static String get baseUrl => 'https://www.fahemt.online';
 
-  // الدومين الحالي يُقرأ من Firestore (settings/app.apiBaseUrl) فلا يلزم إعادة بناء التطبيق عند تغيير الدومين.
+  // نسمح فقط بدوميني الإنتاج المعروفين. حسب إعداد Vercel الحالي، fahemt.online يحوّل 308 إلى www.fahemt.online؛ لذلك نستخدم www مباشرة لتفادي التحويل.
   static String? _remoteBase;
 
   static Future<String> _resolveBase({bool force = false}) async {
     if (force || _remoteBase == null) {
       try {
         final snap = await FirebaseFirestore.instance.collection('settings').doc('app').get().timeout(const Duration(seconds: 5));
-        final u = (snap.data()?['apiBaseUrl'] ?? '').toString().trim();
-        if (u.startsWith('http')) _remoteBase = u.replaceFirst(RegExp(r'/+$'), '');
+        final raw = (snap.data()?['apiBaseUrl'] ?? '').toString().trim();
+        final candidate = Uri.tryParse(raw);
+        final allowedHosts = <String>{'fahemt.online', 'www.fahemt.online'};
+        if (candidate != null && candidate.scheme == 'https' &&
+            allowedHosts.contains(candidate.host.toLowerCase()) &&
+            (candidate.path.isEmpty || candidate.path == '/')) {
+          _remoteBase = candidate.replace(path: '', query: null, fragment: null).toString().replaceFirst(RegExp(r'/+$'), '');
+        }
       } catch (_) {}
     }
     return _remoteBase ?? baseUrl;
@@ -76,12 +79,19 @@ class HttpsCallable {
       final base = await _resolveBase();
       try {
         response = await _post(base, token, parameters);
-        // بعض إعدادات Vercel تعيد 308 بسبب توحيد الشرطة المائلة؛ جرّب المسار ذي الشرطة مرة واحدة.
-        if (response.statusCode == 308) {
+        // اتبع 308 يدويًا مع الحفاظ على POST والـ body؛ بعض الدومينات تحول apex إلى www.
+        // لا نرسل Firebase ID token إلا إلى دومين المنصة المعروف عبر HTTPS.
+        if (response.statusCode == 308 || response.statusCode == 307) {
           final location = response.headers['location'];
-          if (location != null && location.isNotEmpty) {
-            final redirected = Uri.tryParse(location);
-            if (redirected != null && redirected.host == Uri.parse(base).host) {
+          if (location != null && location.trim().isNotEmpty) {
+            final parsedLocation = Uri.tryParse(location.trim());
+            final redirected = parsedLocation == null ? null : Uri.parse(base).resolveUri(parsedLocation);
+            final allowedHosts = <String>{
+              Uri.parse(base).host,
+              'fahemt.online',
+              'www.fahemt.online',
+            };
+            if (redirected != null && redirected.scheme == 'https' && allowedHosts.contains(redirected.host)) {
               response = await http.post(redirected, headers: {
                 'Content-Type': 'application/json',
                 if (token != null) 'Authorization': 'Bearer $token',
@@ -158,8 +168,8 @@ class HttpsCallable {
           cause = 'العملية تجاوزت حد الوقت في Vercel (60 ثانية في الخطة المجانية).';
           fix = 'أعد المحاولة، ولو تكرر افتح Vercel ← Logs لمعرفة الخطوة البطيئة.';
         } else if (s == 308) {
-          cause = 'Vercel يعيد توجيه طلب POST بدل تشغيل الدالة؛ غالبًا إعداد الشرطة المائلة أو الدومين الأساسي.';
-          fix = 'تمت إضافة معالجة لإعادة التوجيه في التطبيق. انشر تحديث المنصة وراجع أن الدومين في settings/app.apiBaseUrl هو الدومين النهائي مباشرة وليس رابط Preview أو رابطًا يعيد التوجيه.';
+          cause = 'Vercel أعاد توجيه طلب POST بدل تشغيل الدالة؛ الدومين fahemt.online مضبوط على تحويل 308 إلى www.fahemt.online.';
+          fix = 'التطبيق المحدّث يستخدم https://www.fahemt.online مباشرة. تأكد أن settings/app.apiBaseUrl = https://www.fahemt.online، ثم أعد بناء التطبيق وتثبيت النسخة الجديدة.';
         } else {
           cause = 'الدالة انهارت قبل أن ترد، أو آخر نشر فشل.';
           fix = 'Vercel ← Deployments (تأكد أن آخر نسخة Ready) ثم Logs لمسار /api/fn/$name.';
