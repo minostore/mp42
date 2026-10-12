@@ -49,7 +49,7 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
       if (!mounted) { await c.dispose(); return; }
       setState(() { _media = m; _c = c; });
     } catch (e) {
-      if (mounted) setState(() => _error = 'تعذر تشغيل المحتوى. تأكد أنك عضو في المجموعة وحاول مرة أخرى.');
+      if (mounted) setState(() => _error = 'تعذر تشغيل المحتوى. تحقق من اتصال الإنترنت وعضويتك، ثم حاول مرة أخرى.\\n\\nالتفاصيل: $e');
     }
   }
 

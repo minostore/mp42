@@ -76,6 +76,19 @@ class HttpsCallable {
       final base = await _resolveBase();
       try {
         response = await _post(base, token, parameters);
+        // بعض إعدادات Vercel تعيد 308 بسبب توحيد الشرطة المائلة؛ جرّب المسار ذي الشرطة مرة واحدة.
+        if (response.statusCode == 308) {
+          final location = response.headers['location'];
+          if (location != null && location.isNotEmpty) {
+            final redirected = Uri.tryParse(location);
+            if (redirected != null && redirected.host == Uri.parse(base).host) {
+              response = await http.post(redirected, headers: {
+                'Content-Type': 'application/json',
+                if (token != null) 'Authorization': 'Bearer $token',
+              }, body: jsonEncode({'data': parameters ?? <String, dynamic>{}})).timeout(const Duration(seconds: 60));
+            }
+          }
+        }
         // دومين قديم/متوقف: لا يرجع JSON صالح من الدوال → نحدّث الدومين من Firestore ونعيد مرة واحدة
         if (response.statusCode == 404 || response.statusCode >= 502) {
           final fresh = await _resolveBase(force: true);
@@ -144,6 +157,9 @@ class HttpsCallable {
         } else if (s == 504 || s == 408) {
           cause = 'العملية تجاوزت حد الوقت في Vercel (60 ثانية في الخطة المجانية).';
           fix = 'أعد المحاولة، ولو تكرر افتح Vercel ← Logs لمعرفة الخطوة البطيئة.';
+        } else if (s == 308) {
+          cause = 'Vercel يعيد توجيه طلب POST بدل تشغيل الدالة؛ غالبًا إعداد الشرطة المائلة أو الدومين الأساسي.';
+          fix = 'تمت إضافة معالجة لإعادة التوجيه في التطبيق. انشر تحديث المنصة وراجع أن الدومين في settings/app.apiBaseUrl هو الدومين النهائي مباشرة وليس رابط Preview أو رابطًا يعيد التوجيه.';
         } else {
           cause = 'الدالة انهارت قبل أن ترد، أو آخر نشر فشل.';
           fix = 'Vercel ← Deployments (تأكد أن آخر نسخة Ready) ثم Logs لمسار /api/fn/$name.';
