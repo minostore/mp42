@@ -99,29 +99,59 @@ class ErrorCenter {
   }
 
   /// أخطاء الاجتماع القادمة من مكتبة Jitsi/JaaS (تظهر عند إنهاء الاتصال بسبب خطأ).
-  void reportMeetingError(Object? error, {String? where}) {
-    if (error == null) return;
-    final t = error.toString();
-    final low = t.toLowerCase();
-    AppError mk(String title, String cause, String fix) => AppError(title: title, cause: cause, fix: fix, technical: _short(t), where: where ?? 'الاجتماع');
-    AppError err;
-    if (low.contains('notallowed') || low.contains('not-allowed') || low.contains('not_allowed') || low.contains('jwt') || low.contains('token') || low.contains('authentication')) {
-      err = mk('الاجتماع رفض الدخول (التوكن غير مقبول)',
-          'JaaS لم يقبل توكن الدخول: JAAS_KEY_ID لا يطابق المفتاح الخاص JAAS_PRIVATE_KEY، أو JAAS_APP_ID خطأ، أو اسم الغرفة في التوكن مختلف عن الغرفة.',
-          'JaaS Console ← API Keys: تأكد أن Key ID هو لنفس ملف .pk الذي وضعته في Vercel وأن App ID مطابق، ثم Redeploy وجرّب جلسة جديدة. يمكنك التأكد من الفحص: لوحة الأدمن ← فحص النظام.');
-    } else if (low.contains('connectionerror') || low.contains('connection') || low.contains('network') || low.contains('xmpp')) {
-      err = mk('انقطع الاتصال بالاجتماع', 'الإنترنت ضعيف أو الاتصال بخوادم 8x8 تعطل.', 'تأكد من الإنترنت ثم ادخل الجلسة من جديد.');
-    } else if (low.contains('room') && (low.contains('not') || low.contains('exist'))) {
-      err = mk('الغرفة غير متاحة', 'الجلسة انتهت أو لم تبدأ بعد.', 'اطلب من المُفهم بدء الجلسة ثم ادخل من جديد.');
-    } else {
-      err = mk('انتهى الاجتماع بسبب خطأ', 'لم يتم التعرّف على السبب من رد JaaS.', 'انسخ التفاصيل وأرسلها للمطوّر.');
-    }
+  void reportMeetingError(Object? error, {String? where, List<String> hints = const []}) {
+    if (error == null || error.toString().trim().isEmpty) return;
+    final err = explainMeetingError(error, where: where, hints: hints);
     final key = '${err.title}|${err.where}';
     final last = _recent[key];
     if (last == null || DateTime.now().difference(last) > const Duration(seconds: 4)) {
       _recent[key] = DateTime.now();
       errors.value = [err, ...errors.value].take(3).toList();
     }
+  }
+
+  /// يحوّل رسالة Jitsi/JaaS إلى سبب مفهوم. [hints] ملاحظات إضافية من فحص التوكن المحلي.
+  static AppError explainMeetingError(Object? error, {String? where, List<String> hints = const []}) {
+    final t = (error ?? '').toString();
+    final low = t.toLowerCase();
+    final extra = hints.isEmpty ? '' : '\nملاحظات فحص التوكن: ${hints.join(' | ')}';
+    AppError mk(String title, String cause, String fix) => AppError(
+        title: title, cause: '$cause$extra', fix: fix, technical: t.isEmpty ? 'error=null' : _short(t), where: where ?? 'الاجتماع');
+
+    if (low.contains('passwordrequired') || low.contains('password')) {
+      return mk('الغرفة محمية بكلمة سر', 'JaaS يطلب كلمة سر لهذه الغرفة ولا يوجد في التطبيق ما يدخلها.', 'أزل كلمة السر من الغرفة، أو اطلب من المطوّر دعمها.');
+    }
+    if (low.contains('maxuser') || low.contains('max_occupants') || low.contains('maxoccupants')) {
+      return mk('الغرفة وصلت للحد الأقصى', 'عدد المشاركين وصل الحد المسموح في باقة JaaS.', 'ارفع الباقة أو اطلب من أحد المشاركين الخروج.');
+    }
+    if (low.contains('reservation')) {
+      return mk('تعذّر حجز الغرفة', 'JaaS رفض إنشاء الغرفة (حدود الباقة أو حسابك على 8x8 غير مفعّل).', 'راجع حسابك في JaaS Console وحالة الباقة.');
+    }
+    if (low.contains('videobridge') || low.contains('invalidbridge')) {
+      return mk('خوادم الفيديو غير متاحة مؤقتًا', 'خوادم 8x8 لا تستطيع تشغيل الغرفة الآن.', 'انتظر دقيقة وأعد المحاولة.');
+    }
+    if (low.contains('kick')) {
+      return mk('تم إخراجك من الاجتماع', 'المُشرف أخرجك من الغرفة.', 'تواصل مع المُفهّم أو الإدارة.');
+    }
+    if (low.contains('focusleft') || low.contains('destroyed') || low.contains('hangup')) {
+      return mk('انتهت الجلسة', 'أُغلقت الغرفة من المُشرف أو من السيرفر.', 'ادخل من جديد إن كانت المحاضرة مستمرة.');
+    }
+    if (low.contains('expired')) {
+      return mk('انتهت صلاحية التوكن', 'التوكن انتهى قبل أو أثناء الدخول، وغالبًا ساعة الجهاز غير مضبوطة.', 'اضبط التاريخ والوقت على تلقائي وأعد الدخول.');
+    }
+    if (low.contains('notallowed') || low.contains('not-allowed') || low.contains('not_allowed') || low.contains('accessdenied') ||
+        low.contains('jwt') || low.contains('token') || low.contains('authentication') || low.contains('membersonly')) {
+      return mk('الاجتماع رفض الدخول (التوكن غير مقبول)',
+          'JaaS لم يقبل توكن الدخول: JAAS_KEY_ID لا يطابق المفتاح الخاص JAAS_PRIVATE_KEY (أو kid ناقص الـ App ID)، أو JAAS_APP_ID خطأ، أو اسم الغرفة في التوكن مختلف عن الغرفة.',
+          'JaaS Console ← API Keys: انسخ Key ID كاملًا بصيغة <AppID>/<KeyID> وتأكد أنه لنفس ملف .pk الذي وضعته في Vercel وأن App ID مطابق، ثم Redeploy وجرّب جلسة جديدة.');
+    }
+    if (low.contains('room') && (low.contains('not') || low.contains('exist'))) {
+      return mk('الغرفة غير متاحة', 'الجلسة انتهت أو لم تبدأ بعد.', 'اطلب من المُفهم بدء الجلسة ثم ادخل من جديد.');
+    }
+    if (low.contains('connectionerror') || low.contains('connection') || low.contains('network') || low.contains('xmpp') || low.contains('dropped')) {
+      return mk('انقطع الاتصال بالاجتماع', 'الإنترنت ضعيف أو الاتصال بخوادم 8x8 تعطل.', 'تأكد من الإنترنت ثم ادخل الجلسة من جديد.');
+    }
+    return mk('انتهى الاجتماع بسبب خطأ', 'لم يتم التعرّف على السبب من رد JaaS (النص الأصلي في التفاصيل التقنية).', 'انسخ التفاصيل وأرسلها للمطوّر.');
   }
 
   void dismiss(String id) => errors.value = errors.value.where((e) => e.id != id).toList();

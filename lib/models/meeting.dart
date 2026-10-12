@@ -28,7 +28,7 @@ class Meeting {
       mustafhemName: (d['mustafhemName'] ?? '').toString(),
       mufhemName: (d['mufhemName'] ?? '').toString(),
       meetingTime: time,
-      amount: (d['amount'] ?? 0) as num,
+      amount: d['amount'] is num ? d['amount'] as num : (num.tryParse('${d['amount'] ?? 0}') ?? 0),
     );
   }
 }

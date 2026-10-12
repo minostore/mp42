@@ -432,7 +432,7 @@ exports.getGroupMeetingToken = onCall(async (request) => {
       user: { id: uid, name: String(me.name || me.fullName || uid), email: String(me.email || ''), avatar: String(me.photoUrl || ''), moderator: String(isOwner) },
       features: { recording: String(isOwner && ss.data().record === true), livestreaming: 'false', transcription: 'false', 'outbound-call': 'false', 'sip-outbound-call': 'false' },
     },
-  }, privateKey.replace(/\\n/g, '\n'), { algorithm: 'RS256', keyid: keyId, header: { typ: 'JWT' } });
+  }, privateKey.replace(/\\n/g, '\n'), { algorithm: 'RS256', keyid: keyId.includes('/') ? keyId : `${appId}/${keyId}`, header: { typ: 'JWT' } });
   return { token, appId, room: `${appId}/${room}`, moderator: isOwner, record: ss.data().record === true };
 });
 

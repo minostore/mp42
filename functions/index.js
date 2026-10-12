@@ -577,7 +577,7 @@ exports.getJaasMeetingToken = onCall(async (request) => {
     nbf: now - 5,
     exp: now + 2 * 60 * 60,
     context: { user: { id: uid, name: String(p.name || request.auth.token.name || request.auth.token.email || uid), email: String(p.email || request.auth.token.email || ''), avatar: String(p.photoUrl || ''), moderator: String(moderator) }, features: { recording: moderator, livestreaming: false, transcription: false } }
-  }, privateKey.replace(/\\n/g, '\n'), { algorithm: 'RS256', keyid: keyId, header: { typ: 'JWT' } });
+  }, privateKey.replace(/\\n/g, '\n'), { algorithm: 'RS256', keyid: keyId.includes('/') ? keyId : `${appId}/${keyId}`, header: { typ: 'JWT' } });
   return { token, appId, room: `${appId}/${room}` };
 });
 
