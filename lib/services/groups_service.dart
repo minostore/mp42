@@ -5,6 +5,7 @@ import '../screens/agora_meeting_room.dart';
 import 'api_functions.dart';
 import 'agora_token_service.dart';
 import 'error_center.dart';
+import 'r2_worker_service.dart';
 
 /// رابط مشاهدة مؤقت + بيانات العلامة المائية (من الخادم بعد التحقق من العضوية).
 class GroupMedia {
@@ -38,21 +39,46 @@ class GroupsService {
   Stream<QuerySnapshot<Map<String, dynamic>>> watchLiveSessions(String groupId) =>
       _db.collection('groups').doc(groupId).collection('sessions').where('status', isEqualTo: 'live').snapshots();
 
-  Future<GroupMedia> getMedia({required String groupId, required String kind, required String id}) async {
-    final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
-        .httpsCallable('getGroupMediaUrl')
-        .call<Map<String, dynamic>>({'groupId': groupId, 'kind': kind, 'id': id});
-    final d = res.data;
-    final wm = (d['watermark'] is Map) ? Map<String, dynamic>.from(d['watermark'] as Map) : <String, dynamic>{};
-    return GroupMedia(url: (d['url'] ?? '').toString(), name: (wm['name'] ?? '').toString(), publicId: (wm['publicId'] ?? '').toString());
+  Future<GroupMedia> _mediaFromDoc(DocumentReference<Map<String, dynamic>> ref) async {
+    final snap = await ref.get();
+    final key = (snap.data()?['r2Key'] ?? '').toString();
+    if (key.isEmpty) throw Exception('المحتوى غير موجود');
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    var name = '', publicId = '';
+    if (uid != null) {
+      try {
+        final me = (await _db.collection('users').doc(uid).get()).data() ?? {};
+        name = (me['name'] ?? me['fullName'] ?? '').toString();
+        publicId = (me['publicId'] ?? '').toString();
+      } catch (_) {}
+    }
+    return GroupMedia(url: R2WorkerService.keyToUrl(key), name: name, publicId: publicId);
   }
 
-  /// مشاهدة تسجيل من لوحة الأدمن (يتحقق الخادم أن المستخدم أدمن).
+  Future<GroupMedia> getMedia({required String groupId, required String kind, required String id}) async {
+    try {
+      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('getGroupMediaUrl')
+          .call<Map<String, dynamic>>({'groupId': groupId, 'kind': kind, 'id': id}).timeout(const Duration(seconds: 8));
+      final d = res.data;
+      final wm = (d['watermark'] is Map) ? Map<String, dynamic>.from(d['watermark'] as Map) : <String, dynamic>{};
+      return GroupMedia(url: (d['url'] ?? '').toString(), name: (wm['name'] ?? '').toString(), publicId: (wm['publicId'] ?? '').toString());
+    } catch (_) {
+      // دوال Firebase غير متاحة: القواعد تسمح بقراءة وثيقة المحتوى للأعضاء فقط، ثم نبني رابط Cloudflare.
+      return _mediaFromDoc(_db.collection('groups').doc(groupId).collection(kind).doc(id));
+    }
+  }
+
+  /// مشاهدة تسجيل من لوحة الأدمن.
   Future<GroupMedia> getAdminRecordingMedia(String id) async {
-    final res = await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('getLectureRecordingUrl').call<Map<String, dynamic>>({'id': id});
-    final d = res.data;
-    final wm = (d['watermark'] is Map) ? Map<String, dynamic>.from(d['watermark'] as Map) : <String, dynamic>{};
-    return GroupMedia(url: (d['url'] ?? '').toString(), name: (wm['name'] ?? '').toString(), publicId: (wm['publicId'] ?? '').toString());
+    try {
+      final res = await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('getLectureRecordingUrl').call<Map<String, dynamic>>({'id': id}).timeout(const Duration(seconds: 8));
+      final d = res.data;
+      final wm = (d['watermark'] is Map) ? Map<String, dynamic>.from(d['watermark'] as Map) : <String, dynamic>{};
+      return GroupMedia(url: (d['url'] ?? '').toString(), name: (wm['name'] ?? '').toString(), publicId: (wm['publicId'] ?? '').toString());
+    } catch (_) {
+      return _mediaFromDoc(_db.collection('lectureRecordings').doc(id));
+    }
   }
 
   Future<Map<String, dynamic>> submitQuiz({required String groupId, required String quizId, required List<dynamic> answers}) async {

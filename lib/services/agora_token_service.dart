@@ -25,14 +25,19 @@ class AgoraTokenService {
         )
         .timeout(const Duration(seconds: 20));
     Map<String, dynamic> data = {};
+    final raw = utf8.decode(res.bodyBytes, allowMalformed: true);
     try {
-      final d = jsonDecode(utf8.decode(res.bodyBytes));
+      final d = jsonDecode(raw);
       if (d is Map<String, dynamic>) data = d;
     } catch (_) {}
     if (res.statusCode != 200) {
       final err = data['error'];
       final msg = err is Map ? (err['message'] ?? '').toString() : '';
       throw Exception(msg.isNotEmpty ? msg : 'تعذر إصدار توكن الاجتماع (HTTP ${res.statusCode})');
+    }
+    if (data.isEmpty) {
+      final snip = raw.length > 200 ? raw.substring(0, 200) : raw;
+      throw Exception('رد غير متوقع من Worker: HTTP ${res.statusCode} type=${res.headers['content-type']} body=$snip');
     }
     return data;
   }

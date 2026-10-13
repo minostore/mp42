@@ -5,6 +5,8 @@ class AnalyticsService {
   Future<void> log(String event, {Map<String, dynamic> data = const {}}) async {
     final name = event.trim();
     if (name.isEmpty) return;
-    await _functions.httpsCallable('logAnalyticsEvent').call({'event': name, 'data': data});
+    try {
+      await _functions.httpsCallable('logAnalyticsEvent').call({'event': name, 'data': data});
+    } catch (_) {}
   }
 }

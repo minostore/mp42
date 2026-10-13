@@ -1,6 +1,7 @@
 
 import 'package:flutter/material.dart';
 import '../services/api_functions.dart';
+import '../services/r2_worker_service.dart';
 
 class R2Image extends StatefulWidget {
   final String source;
@@ -55,13 +56,21 @@ class _R2ImageState extends State<R2Image> {
     try {
       final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('getR2MediaUrl');
-      final result = await callable.call<Map<String, dynamic>>({'token': widget.source});
+      final result = await callable
+          .call<Map<String, dynamic>>({'token': widget.source}).timeout(const Duration(seconds: 6));
       final url = (result.data['url'] ?? '').toString();
       if (url.isEmpty) throw Exception('empty R2 URL');
       _cache[widget.source] = url;
       if (mounted) setState(() => _url = url);
     } catch (_) {
-      if (mounted) setState(() => _failed = true);
+      // دوال Firebase غير متاحة (خطة Spark): نقرأ مباشرة من Cloudflare Worker.
+      final direct = R2WorkerService.tokenToUrl(widget.source);
+      if (direct != null) {
+        _cache[widget.source] = direct;
+        if (mounted) setState(() => _url = direct);
+      } else if (mounted) {
+        setState(() => _failed = true);
+      }
     }
   }
 

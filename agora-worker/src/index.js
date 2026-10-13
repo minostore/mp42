@@ -147,18 +147,27 @@ async function groupToken(env, idToken, uid, body) {
   const groupId = String(body.groupId || '').trim();
   const sessionId = String(body.sessionId || '').trim();
   if (!groupId || !sessionId) return fail(400, 'invalid-argument', 'بيانات الجلسة ناقصة');
-  // القواعد تسمح بقراءة المجموعة للمالك/العضو/الأدمن فقط.
+  const profile = (await getDoc(env, idToken, `users/${uid}`)) || {};
+  if (profile.status === 'blocked') return fail(403, 'permission-denied', 'الحساب محظور');
+  const isAdmin = profile.isAdmin === true || profile.role === 'admin';
+  // القواعد تسمح بقراءة المجموعة للمالك/العضو فقط (الأدمن لا تشمله القواعد).
   const g = await getDoc(env, idToken, `groups/${groupId}`);
-  if (!g) return fail(403, 'permission-denied', 'الجلسة لأعضاء المجموعة فقط');
-  if (g.status !== 'active') return fail(412, 'failed-precondition', 'المجموعة متوقفة مؤقتًا');
-  const s = await getDoc(env, idToken, `groups/${groupId}/sessions/${sessionId}`);
-  if (!s || s.status !== 'live') return fail(412, 'failed-precondition', 'الجلسة غير متاحة الآن');
-  const isOwner = g.ownerUid === uid;
+  let isOwner = false;
+  let record = false;
+  if (g) {
+    if (g.status !== 'active') return fail(412, 'failed-precondition', 'المجموعة متوقفة مؤقتًا');
+    const s = await getDoc(env, idToken, `groups/${groupId}/sessions/${sessionId}`);
+    if (!s || s.status !== 'live') return fail(412, 'failed-precondition', 'الجلسة غير متاحة الآن');
+    isOwner = g.ownerUid === uid;
+    record = s.record === true;
+  } else if (!isAdmin) {
+    return fail(403, 'permission-denied', `الجلسة لأعضاء المجموعة فقط (uid=${uid.slice(0, 6)}.. group=${groupId.slice(0, 6)}..)`);
+  }
   const channel = `Group_${groupId}_${sessionId}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
   const agoraUid = numericUid(`${uid}:${groupId}:${sessionId}`);
   const expire = Math.floor(Date.now() / 1000) + 3 * 3600;
   const token = await buildRtcToken(env.AGORA_APP_ID.trim(), env.AGORA_APP_CERTIFICATE.trim(), channel, agoraUid, expire);
-  return json({ appId: env.AGORA_APP_ID.trim(), channel, uid: agoraUid, token, expiresAt: expire, moderator: isOwner, record: s.record === true });
+  return json({ appId: env.AGORA_APP_ID.trim(), channel, uid: agoraUid, token, expiresAt: expire, moderator: isOwner, record });
 }
 
 export default {
