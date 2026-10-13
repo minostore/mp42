@@ -50,6 +50,10 @@ jobs:
           printf 'AGORA_APP_ID=%s\n' "$AGORA_APP_ID" > "functions/.env.$FIREBASE_PROJECT"
           printf %s "$AGORA_APP_CERTIFICATE" | firebase functions:secrets:set AGORA_APP_CERTIFICATE --data-file - --project "$FIREBASE_PROJECT" --force --non-interactive
 
+      # نشر دوال Agora وحدها (بدون continue-on-error علشان أي فشل يظهر بوضوح)
+      - name: Deploy Agora functions
+        run: firebase deploy --only functions:getAgoraMeetingToken,functions:getGroupMeetingToken --project "$FIREBASE_PROJECT" --force --non-interactive
+
       # 1) أهم دالة أولاً: الشراء (لا تحتاج أي أسرار)
       - name: Deploy purchaseCourse (fast path)
         run: firebase deploy --only functions:purchaseCourse --project "$FIREBASE_PROJECT" --force --non-interactive
