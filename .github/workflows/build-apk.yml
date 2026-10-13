@@ -86,7 +86,7 @@ jobs:
 
       - name: Build release APK (retry on network errors)
         run: |
-          # مستودع Jitsi على GitHub يرجع 504 أحيانًا؛ نعيد المحاولة بدل أن يفشل البناء كله
+          # إعادة المحاولة عند أخطاء الشبكة المؤقتة أثناء تنزيل التبعيات
           for i in 1 2 3 4; do
             echo "=== Build attempt $i ==="
             if flutter build apk --release --no-shrink \

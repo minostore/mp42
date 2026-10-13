@@ -7,7 +7,8 @@ const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
+const { defineSecret } = require('firebase-functions/params');
+const AGORA_APP_CERTIFICATE = defineSecret('AGORA_APP_CERTIFICATE');
 const { presignedUrl, deleteObject } = require('./r2');
 
 const db = admin.firestore();
@@ -405,7 +406,7 @@ exports.attachGroupRecording = onCall(async (request) => {
   return { ok: true };
 });
 
-exports.getGroupMeetingToken = onCall(async (request) => {
+exports.getGroupMeetingToken = onCall({ secrets: [AGORA_APP_CERTIFICATE] }, async (request) => {
   const uid = reqUid(request);
   const groupId = String(request.data?.groupId || '').trim();
   const sessionId = String(request.data?.sessionId || '').trim();
@@ -419,21 +420,20 @@ exports.getGroupMeetingToken = onCall(async (request) => {
   }
   const ss = await gs.ref.collection('sessions').doc(sessionId).get();
   if (!ss.exists || ss.data().status !== 'live') throw new HttpsError('failed-precondition', 'الجلسة غير متاحة الآن');
-  const appId = process.env.JAAS_APP_ID || 'vpaas-magic-cookie-4ddd1f4050174a1b89a6ce9a82ade034';
-  const keyId = process.env.JAAS_KEY_ID || '09cb60';
-  const privateKey = process.env.JAAS_PRIVATE_KEY;
-  if (!privateKey) throw new HttpsError('failed-precondition', 'إعدادات JaaS JWT غير مكتملة على الخادم');
-  const room = String(ss.data().room);
-  const me = (await db.collection('users').doc(uid).get()).data() || {};
-  const now = Math.floor(Date.now() / 1000);
-  const token = jwt.sign({
-    aud: 'jitsi', iss: 'chat', sub: appId, room, nbf: now - 5, exp: now + 3 * 60 * 60,
-    context: {
-      user: { id: uid, name: String(me.name || me.fullName || uid), email: String(me.email || ''), avatar: String(me.photoUrl || ''), moderator: String(isOwner) },
-      features: { recording: String(isOwner && ss.data().record === true), livestreaming: 'false', transcription: 'false', 'outbound-call': 'false', 'sip-outbound-call': 'false' },
-    },
-  }, privateKey.replace(/\\n/g, '\n'), { algorithm: 'RS256', keyid: keyId.includes('/') ? keyId : `${appId}/${keyId}`, header: { typ: 'JWT' } });
-  return { token, appId, room: `${appId}/${room}`, moderator: isOwner, record: ss.data().record === true };
+
+  const appId = String(process.env.AGORA_APP_ID || '').trim();
+  const certificate = String(AGORA_APP_CERTIFICATE.value() || '').trim();
+  if (!appId || !certificate) throw new HttpsError('failed-precondition', 'إعدادات Agora ناقصة على الخادم: AGORA_APP_ID وAGORA_APP_CERTIFICATE');
+
+  const { RtcTokenBuilder, RtcRole } = require('agora-access-token');
+  const channel = `Group_${groupId}_${sessionId}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+  // Agora UID لازم يكون رقم صحيح موجب (ثابت لنفس المستخدم في نفس الجلسة).
+  let numericUid = 0;
+  for (const ch of `${uid}:${groupId}:${sessionId}`) numericUid = (Math.imul(numericUid, 31) + ch.charCodeAt(0)) >>> 0;
+  numericUid = (numericUid % 2147483646) + 1;
+  const expire = Math.floor(Date.now() / 1000) + 3 * 60 * 60;
+  const token = RtcTokenBuilder.buildTokenWithUid(appId, certificate, channel, numericUid, RtcRole.PUBLISHER, expire);
+  return { appId, channel, uid: numericUid, token, expiresAt: expire, moderator: isOwner, record: ss.data().record === true };
 });
 
 /** رابط رفع مؤقت (PUT) مباشر إلى R2 — للمُفهم صاحب المجموعة فقط. */

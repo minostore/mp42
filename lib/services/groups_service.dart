@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:jitsi_meet_flutter_sdk/jitsi_meet_flutter_sdk.dart';
+import 'package:flutter/material.dart';
+import '../screens/agora_meeting_room.dart';
 import 'api_functions.dart';
 import 'error_center.dart';
 
@@ -60,36 +61,41 @@ class GroupsService {
     return res.data;
   }
 
-  /// دخول جلسة مباشرة داخل التطبيق (JaaS). المُفهم صاحب المجموعة moderator ويملك صلاحية التسجيل لو الجلسة مسجلة.
-  /// يرجع true لو كان المستخدم moderator والجلسة مسجلة (ليُنبَّه لضغط زر التسجيل).
-  Future<bool> joinSession({required String groupId, required String sessionId, required String displayName, String? email, String? avatar}) async {
+  /// دخول جلسة مباشرة داخل التطبيق (Agora RTC). المُفهم صاحب المجموعة moderator.
+  /// يرجع true لو كان المستخدم moderator والجلسة مسجلة (تنبيه فقط — تسجيل Agora يحتاج إعدادًا منفصلًا).
+  Future<bool> joinSession({
+    required BuildContext context,
+    required String groupId,
+    required String sessionId,
+    required String displayName,
+    String? email,
+    String? avatar,
+  }) async {
     final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('getGroupMeetingToken')
         .call<Map<String, dynamic>>({'groupId': groupId, 'sessionId': sessionId});
     final d = res.data;
+    final appId = (d['appId'] ?? '').toString().trim();
+    final channel = (d['channel'] ?? '').toString().trim();
+    final token = (d['token'] ?? '').toString().trim();
+    final uidValue = d['uid'];
+    final agoraUid = uidValue is num ? uidValue.toInt() : int.tryParse('$uidValue') ?? 0;
     final moderator = d['moderator'] == true;
     final record = d['record'] == true;
-    final options = JitsiMeetConferenceOptions(
-      room: (d['room'] ?? '').toString(),
-      token: (d['token'] ?? '').toString(),
-      serverURL: 'https://8x8.vc',
-      configOverrides: {
-        'prejoinPageEnabled': false,
-        'disableInviteFunctions': true,
-        'startWithAudioMuted': !moderator,
-        'startWithVideoMuted': !moderator,
-      },
-      featureFlags: {
-        FeatureFlags.recordingEnabled: moderator && record,
-        FeatureFlags.androidScreenSharingEnabled: moderator,
-        FeatureFlags.iosScreenSharingEnabled: moderator,
-      },
-      userInfo: JitsiMeetUserInfo(displayName: displayName, email: email, avatar: avatar),
-    );
-    await JitsiMeet().join(
-      options,
-      JitsiMeetEventListener(
-        conferenceTerminated: (url, error) => ErrorCenter.instance.reportMeetingError(error, where: 'الجلسة المباشرة'),
+    if (appId.isEmpty || channel.isEmpty || token.isEmpty || agoraUid <= 0) {
+      throw Exception('بيانات Agora غير مكتملة من الخادم. تأكد من AGORA_APP_ID وAGORA_APP_CERTIFICATE ثم أعد نشر الدوال.');
+    }
+    if (!context.mounted) return false;
+    await Navigator.of(context, rootNavigator: true).push<void>(
+      MaterialPageRoute(
+        builder: (_) => AgoraMeetingRoom(
+          appId: appId,
+          channel: channel,
+          token: token,
+          uid: agoraUid,
+          displayName: displayName,
+          moderator: moderator,
+        ),
       ),
     );
     return moderator && record;

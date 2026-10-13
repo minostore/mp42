@@ -33,11 +33,6 @@ dependencyResolutionManagement {
         maven {
             url = uri("https://storage.googleapis.com/download.flutter.io")
         }
-        // Jitsi publishes the Android SDK in its own Maven repository.
-        // This must be declared here because repositoriesMode uses PREFER_SETTINGS.
-        maven {
-            url = uri("https://github.com/jitsi/jitsi-maven-repository/raw/master/releases")
-        }
     }
 }
 

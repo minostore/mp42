@@ -187,6 +187,7 @@ class _GroupSessionScreenState extends State<GroupSessionScreen> {
       if (user == null) throw Exception('سجّل الدخول أولًا');
       final profile = await FirestoreService().getUserProfile(user.uid);
       final hint = await GroupsService().joinSession(
+        context: context,
         groupId: widget.groupId,
         sessionId: widget.sessionId,
         displayName: (profile == null || profile.name.isEmpty) ? 'مستخدم' : profile.name,
