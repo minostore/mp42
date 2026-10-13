@@ -1,0 +1,6 @@
+name = "fahmny-agora"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+[vars]
+FIREBASE_PROJECT_ID = "studio-7708799057-99672"

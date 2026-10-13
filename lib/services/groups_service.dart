@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../screens/agora_meeting_room.dart';
 import 'api_functions.dart';
+import 'agora_token_service.dart';
 import 'error_center.dart';
 
 /// رابط مشاهدة مؤقت + بيانات العلامة المائية (من الخادم بعد التحقق من العضوية).
@@ -71,10 +72,7 @@ class GroupsService {
     String? email,
     String? avatar,
   }) async {
-    final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
-        .httpsCallable('getGroupMeetingToken')
-        .call<Map<String, dynamic>>({'groupId': groupId, 'sessionId': sessionId});
-    final d = res.data;
+    final d = await AgoraTokenService.groupToken(groupId, sessionId);
     final appId = (d['appId'] ?? '').toString().trim();
     final channel = (d['channel'] ?? '').toString().trim();
     final token = (d['token'] ?? '').toString().trim();

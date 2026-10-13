@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'api_functions.dart';
+import 'agora_token_service.dart';
 import 'firestore_service.dart';
 import '../models/meeting.dart';
 import 'error_center.dart';
@@ -221,10 +222,7 @@ class MeetingService {
     status.value = 'جارٍ تجهيز اتصال Agora...';
     dynamic resp;
     try {
-      final result = await FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('getAgoraMeetingToken')
-          .call<dynamic>({'requestId': meeting.id});
-      resp = result.data;
+      resp = await AgoraTokenService.meetingToken(meeting.id);
     } catch (e, st) {
       return ErrorCenter.explain(e, where: 'توكن الاجتماع (Agora)', stack: st);
     }
