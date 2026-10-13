@@ -52,7 +52,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
       _engine = engine;
       await engine.initialize(RtcEngineContext(
         appId: widget.appId,
-        channelProfile: ChannelProfileType.channelProfileCommunication,
+        channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
       ));
       await engine.enableVideo();
       await engine.enableAudio();
@@ -73,7 +73,21 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           if (mounted) setState(() => _remoteUsers.remove(remoteUid));
         },
         onError: (err, msg) {
-          if (mounted) setState(() { _error = 'خطأ Agora: $err ${msg ?? ''}'; _busy = false; });
+          String text = 'خطأ Agora: $err ${msg ?? ''}';
+          if (err == ErrorCodeType.errInvalidToken) {
+            text = 'ERR_INVALID_TOKEN: التوكن غير صالح. غالبًا AGORA_APP_ID أو AGORA_APP_CERTIFICATE في Firebase Functions من مشروع Agora مختلف، أو الشهادة اتغيّرت. راجعهم وأعد نشر الدوال.';
+          } else if (err == ErrorCodeType.errTokenExpired) {
+            text = 'انتهت صلاحية التوكن. اخرج وادخل المحاضرة من جديد.';
+          }
+          if (mounted) setState(() { _error = text; _busy = false; });
+        },
+        onConnectionStateChanged: (connection, state, reason) {
+          if (reason == ConnectionChangedReasonType.connectionChangedInvalidToken && mounted) {
+            setState(() {
+              _error = 'التوكن مرفوض من Agora (Invalid Token). تأكد إن App ID والـ Certificate لنفس المشروع.';
+              _busy = false;
+            });
+          }
         },
         onLeaveChannel: (connection, stats) {
           if (mounted) setState(() { _joined = false; _remoteUsers.clear(); });
@@ -85,7 +99,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
         channelId: widget.channel,
         uid: widget.uid,
         options: const ChannelMediaOptions(
-          channelProfile: ChannelProfileType.channelProfileCommunication,
+          channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
           clientRoleType: ClientRoleType.clientRoleBroadcaster,
           publishCameraTrack: true,
           publishMicrophoneTrack: true,
@@ -127,7 +141,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
         actions: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Center(child: Text(_joined ? 'متصل' : 'جارٍ الاتصال')),
+            child: Center(child: Text(_joined ? 'متصل • ${_remoteUsers.length + 1} مشارك' : 'جارٍ الاتصال')),
           ),
         ],
       ),
@@ -137,32 +151,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
             Expanded(
               child: Stack(
                 children: [
-                  Positioned.fill(
-                    child: _remoteUsers.isNotEmpty && engine != null
-                        ? AgoraVideoView(
-                            controller: VideoViewController.remote(
-                              rtcEngine: engine,
-                              canvas: VideoCanvas(uid: _remoteUsers.first),
-                              connection: RtcConnection(channelId: widget.channel),
-                            ),
-                          )
-                        : Container(
-                            alignment: Alignment.center,
-                            color: const Color(0xFF202631),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.people_alt_outlined, size: 64, color: Colors.white54),
-                                const SizedBox(height: 12),
-                                Text(
-                                  _joined ? 'أنت داخل الغرفة — في انتظار الطرف الآخر' : 'جارٍ الاتصال بغرفة المحاضرة',
-                                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ],
-                            ),
-                          ),
-                  ),
+                  Positioned.fill(child: _remoteGrid(engine)),
                   if (engine != null)
                     Positioned(
                       right: 16,
@@ -239,6 +228,47 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _remoteGrid(RtcEngine? engine) {
+    if (engine == null || _remoteUsers.isEmpty) {
+      return Container(
+        alignment: Alignment.center,
+        color: const Color(0xFF202631),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.people_alt_outlined, size: 64, color: Colors.white54),
+            const SizedBox(height: 12),
+            Text(
+              _joined ? 'أنت داخل الغرفة — في انتظار باقي المشاركين' : 'جارٍ الاتصال بغرفة المحاضرة',
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+    final users = _remoteUsers.toList();
+    Widget tile(int uid) => ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: AgoraVideoView(
+            controller: VideoViewController.remote(
+              rtcEngine: engine,
+              canvas: VideoCanvas(uid: uid),
+              connection: RtcConnection(channelId: widget.channel),
+            ),
+          ),
+        );
+    if (users.length == 1) return tile(users.first);
+    final cols = users.length <= 4 ? 2 : 3;
+    return GridView.count(
+      crossAxisCount: cols,
+      mainAxisSpacing: 6,
+      crossAxisSpacing: 6,
+      padding: const EdgeInsets.all(6),
+      children: users.map(tile).toList(),
     );
   }
 
