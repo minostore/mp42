@@ -36,6 +36,8 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
   final _learning = LearningService();
   static const int _previewLimitSeconds = 120;
   bool _previewEnded = false;
+  bool _showControls = true;
+  Timer? _hideTimer;
 
   String get _uid => FirebaseAuth.instance.currentUser!.uid;
 
@@ -211,8 +213,213 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
     if (mounted) setState(() {});
   }
 
+  // ===== أزرار المشغل فوق الفيديو (مألوفة مثل أي مشغل فيديو) =====
+  void _pokeControls() {
+    _hideTimer?.cancel();
+    if (!_showControls) setState(() => _showControls = true);
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      final playing = _controller?.value.isPlaying ?? false;
+      if (mounted && playing) setState(() => _showControls = false);
+    });
+  }
+
+  void _onVideoTap() {
+    if (_showControls) {
+      _hideTimer?.cancel();
+      setState(() => _showControls = false);
+    } else {
+      _pokeControls();
+    }
+  }
+
+  void _togglePlay() {
+    final c = _controller;
+    if (c == null) return;
+    c.value.isPlaying ? c.pause() : c.play();
+    setState(() {});
+    _pokeControls();
+  }
+
+  String _fmt(Duration d) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    final sec = d.inSeconds.remainder(60);
+    return h > 0 ? '$h:${two(m)}:${two(sec)}' : '${two(m)}:${two(sec)}';
+  }
+
+  void _showVolumeSheet() {
+    final c = _controller;
+    if (c == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.ink,
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(18),
+        child: StatefulBuilder(
+          builder: (ctx, setLocal) => Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('الصوت', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            Slider(
+              value: _volume,
+              min: 0,
+              max: 1,
+              divisions: 10,
+              onChanged: (v) async {
+                setLocal(() => _volume = v);
+                await c.setVolume(v);
+                if (mounted) setState(() {});
+              },
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  void _showSpeedSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.ink,
+      builder: (_) => _SpeedSheet(current: _speed, onPick: _setSpeed),
+    );
+  }
+
+  Widget _overlayIcon(IconData icon, VoidCallback onTap, {double size = 28, String? tooltip}) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: () {
+        onTap();
+        _pokeControls();
+      },
+      iconSize: size,
+      color: Colors.white,
+      icon: Icon(icon),
+    );
+  }
+
+  Widget _buildControlsOverlay(VideoPlayerController c) {
+    return AnimatedOpacity(
+      opacity: _showControls ? 1 : 0,
+      duration: const Duration(milliseconds: 200),
+      child: IgnorePointer(
+        ignoring: !_showControls,
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.black54, Colors.transparent, Colors.black54],
+            ),
+          ),
+          child: Column(
+            children: [
+              // الصف العلوي: رجوع + الصوت + السرعة
+              Row(
+                children: [
+                  _overlayIcon(Icons.arrow_forward, () => context.pop(), size: 24),
+                  const Spacer(),
+                  _overlayIcon(_volume == 0 ? Icons.volume_off : Icons.volume_up, _showVolumeSheet, size: 22, tooltip: 'الصوت'),
+                  TextButton(
+                    onPressed: () {
+                      _showSpeedSheet();
+                      _pokeControls();
+                    },
+                    child: Text('${_speed}x', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                  ),
+                ],
+              ),
+              // المنتصف: تأخير / تشغيل / تقديم
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _overlayIcon(Icons.replay_10, () => _seek(-10), size: 38, tooltip: 'تأخير 10 ثوانٍ'),
+                    const SizedBox(width: 18),
+                    IconButton(
+                      onPressed: _togglePlay,
+                      iconSize: 56,
+                      color: Colors.white,
+                      icon: Icon(c.value.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled),
+                    ),
+                    const SizedBox(width: 18),
+                    _overlayIcon(Icons.forward_10, () => _seek(10), size: 38, tooltip: 'تقديم 10 ثوانٍ'),
+                  ],
+                ),
+              ),
+              // الصف السفلي: الوقت + شريط التقدم + ملء الشاشة
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  textDirection: TextDirection.ltr,
+                  children: [
+                    ValueListenableBuilder<VideoPlayerValue>(
+                      valueListenable: c,
+                      builder: (_, v, __) => Text(
+                        '${_fmt(v.position)} / ${_fmt(v.duration)}',
+                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: VideoProgressIndicator(
+                        c,
+                        allowScrubbing: true,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        colors: const VideoProgressColors(
+                          playedColor: AppColors.accent,
+                          bufferedColor: Colors.white24,
+                          backgroundColor: Colors.white12,
+                        ),
+                      ),
+                    ),
+                    _overlayIcon(
+                      _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+                      _toggleFullscreen,
+                      size: 26,
+                      tooltip: 'تكبير الشاشة',
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVideoArea(VideoPlayerController? c) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Container(color: Colors.black),
+        if (_loading) const CircularProgressIndicator(color: AppColors.accent),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text(_error!, style: const TextStyle(color: Colors.white), textAlign: TextAlign.center),
+          ),
+        if (c != null && c.value.isInitialized)
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _onVideoTap,
+            child: AspectRatio(aspectRatio: c.value.aspectRatio, child: VideoPlayer(c)),
+          ),
+        if (c != null && c.value.isInitialized) _buildControlsOverlay(c),
+        // زر الرجوع عند الخطأ أو التحميل (لا توجد أزرار فوق الفيديو بعد)
+        if (c == null || !c.value.isInitialized)
+          Positioned(
+            top: 6,
+            right: 6,
+            child: IconButton(icon: const Icon(Icons.arrow_forward, color: Colors.white), onPressed: () => context.pop()),
+          ),
+      ],
+    );
+  }
+
   @override
   void dispose() {
+    _hideTimer?.cancel();
     _saveProgress();
     _progressTimer?.cancel();
     _urlRefreshTimer?.cancel();
@@ -231,55 +438,10 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Container(color: Colors.black),
-                  if (_loading) const CircularProgressIndicator(color: AppColors.gold),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Text(
-                        _error!,
-                        style: const TextStyle(color: Colors.white),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  if (c != null && c.value.isInitialized)
-                    GestureDetector(
-                      onTap: () => c.value.isPlaying ? c.pause() : c.play(),
-                      child: AspectRatio(
-                        aspectRatio: c.value.aspectRatio,
-                        child: VideoPlayer(c),
-                      ),
-                    ),
-                  Positioned(
-                    top: 6,
-                    right: 6,
-                    child: IconButton(
-                      icon: const Icon(Icons.arrow_forward, color: Colors.white),
-                      onPressed: () => context.pop(),
-                    ),
-                  ),
-                  if (c != null && c.value.isInitialized)
-                    Positioned(
-                      bottom: 4,
-                      left: 4,
-                      right: 4,
-                      child: VideoProgressIndicator(
-                        c,
-                        allowScrubbing: true,
-                        colors: const VideoProgressColors(
-                          playedColor: AppColors.gold,
-                          bufferedColor: Colors.white24,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
+            if (_fullscreen)
+              Expanded(child: _buildVideoArea(c))
+            else
+              AspectRatio(aspectRatio: 16 / 9, child: _buildVideoArea(c)),
             if (!_fullscreen)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -287,9 +449,6 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
                   children: [
                     IconButton(onPressed: _saveBookmark, icon: const Icon(Icons.bookmark_add_outlined, color: Colors.white), tooltip: 'حفظ علامة'),
                     IconButton(onPressed: _addNote, icon: const Icon(Icons.note_add_outlined, color: Colors.white), tooltip: 'إضافة ملاحظة'),
-                    const Spacer(),
-                    IconButton(onPressed: () => _seek(-10), icon: const Icon(Icons.replay_10, color: Colors.white)),
-                    IconButton(onPressed: () => _seek(10), icon: const Icon(Icons.forward_10, color: Colors.white)),
                   ],
                 ),
               ),
@@ -307,88 +466,6 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
                     return ListView(
                       padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
                       children: [
-                        if (c != null && c.value.isInitialized)
-                          Wrap(
-                            alignment: WrapAlignment.center,
-                            spacing: 6,
-                            children: [
-                              IconButton(
-                                tooltip: 'تأخير 10 ثوانٍ',
-                                onPressed: () => _seek(-10),
-                                icon: const Icon(Icons.replay_10, color: Colors.white),
-                              ),
-                              IconButton(
-                                onPressed: () => c.value.isPlaying ? c.pause() : c.play(),
-                                icon: Icon(
-                                  c.value.isPlaying ? Icons.pause_circle : Icons.play_circle,
-                                  color: AppColors.gold,
-                                  size: 34,
-                                ),
-                              ),
-                              IconButton(
-                                tooltip: 'تقديم 10 ثوانٍ',
-                                onPressed: () => _seek(10),
-                                icon: const Icon(Icons.forward_10, color: Colors.white),
-                              ),
-                              IconButton(
-                                tooltip: 'الصوت',
-                                onPressed: () => showModalBottomSheet<void>(
-                                  context: context,
-                                  backgroundColor: AppColors.ink,
-                                  builder: (_) => Padding(
-                                    padding: const EdgeInsets.all(18),
-                                    child: StatefulBuilder(builder: (ctx, setLocal) => Column(mainAxisSize: MainAxisSize.min, children: [
-                                      const Text('الصوت', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                                      Slider(
-                                        value: _volume,
-                                        min: 0,
-                                        max: 1,
-                                        divisions: 10,
-                                        onChanged: (v) async { setLocal(() => _volume = v); await c.setVolume(v); setState(() {}); },
-                                      ),
-                                    ])),
-                                  ),
-                                ),
-                                icon: Icon(_volume == 0 ? Icons.volume_off : Icons.volume_up, color: Colors.white),
-                              ),
-                              IconButton(
-                                tooltip: 'السرعة',
-                                onPressed: () => showModalBottomSheet<void>(
-                                  context: context,
-                                  backgroundColor: AppColors.ink,
-                                  builder: (_) => _SpeedSheet(
-                                    current: _speed,
-                                    onPick: _setSpeed,
-                                  ),
-                                ),
-                                icon: const Icon(Icons.speed, color: Colors.white),
-                              ),
-                              IconButton(
-                                tooltip: 'الجودة',
-                                onPressed: () => showDialog<void>(
-                                  context: context,
-                                  builder: (_) => AlertDialog(
-                                    title: const Text('جودة المشاهدة'),
-                                    content: const Text(
-                                      'جودة الفيديو الحالية هي الجودة التي يرسلها مصدر الفيديو. يمكن إضافة نسخ 360p/480p/720p/1080p للكورس لتفعيل التبديل بينها.',
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context),
-                                        child: const Text('حسنًا'),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                icon: const Icon(Icons.high_quality_outlined, color: Colors.white),
-                              ),
-                              IconButton(
-                                tooltip: 'تكبير الشاشة',
-                                onPressed: _toggleFullscreen,
-                                icon: const Icon(Icons.fullscreen, color: Colors.white),
-                              ),
-                            ],
-                          ),
                         if (current != null) ...[
                           Text(
                             current.title,

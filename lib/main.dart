@@ -176,7 +176,7 @@ class _MasarAppState extends State<MasarApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'مسار',
+      title: 'فهمت',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       routerConfig: router,

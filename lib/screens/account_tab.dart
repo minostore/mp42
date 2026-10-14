@@ -30,7 +30,7 @@ class AccountTab extends StatelessWidget {
           final profile = snap.data;
           final name = profile?.name.isNotEmpty == true
               ? profile!.name
-              : (user.displayName?.isNotEmpty == true ? user.displayName! : 'طالب مسار');
+              : (user.displayName?.isNotEmpty == true ? user.displayName! : 'طالب فهمت');
           final email = profile?.email.isNotEmpty == true ? profile!.email : (user.email ?? '');
           final photoUrl = profile?.photoUrl ?? '';
           final isMofahhem = profile?.isMofahhem ?? false;

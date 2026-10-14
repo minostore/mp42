@@ -20,6 +20,8 @@ import 'screens/group_video_screen.dart';
 import 'screens/group_quiz_screen.dart';
 import 'screens/lecture_recordings_screen.dart';
 import 'services/firebase_bootstrap.dart';
+import 'hub/requests_screens.dart';
+import 'hub/mufhems_screens.dart';
 
 GoRouter buildRouter() {
   final firebaseBootstrap = FirebaseBootstrap.instance;
@@ -65,6 +67,17 @@ GoRouter buildRouter() {
       return null;
     },
     routes: [
+      // ===== صفحات المفهمين والمستفهمين (القائمة الجانبية) =====
+      GoRoute(path: '/requests/browse', builder: (context, state) => const BrowseRequestsScreen()),
+      GoRoute(path: '/requests/mine', builder: (context, state) => const MyRequestsScreen()),
+      GoRoute(path: '/requests/new', builder: (context, state) => const CreateRequestScreen()),
+      GoRoute(path: '/requests/:id', builder: (context, state) => RequestDetailScreen(requestId: state.pathParameters['id']!)),
+      GoRoute(path: '/requests/:id/offer', builder: (context, state) => MakeOfferScreen(requestId: state.pathParameters['id']!)),
+      GoRoute(path: '/offers/mine', builder: (context, state) => const MyOffersScreen()),
+      GoRoute(path: '/mufhems', builder: (context, state) => const MufhemsScreen()),
+      GoRoute(path: '/mufhems/:id', builder: (context, state) => MufhemProfileScreen(mufhemId: state.pathParameters['id']!)),
+      GoRoute(path: '/portfolio', builder: (context, state) => const PortfolioScreen()),
+      GoRoute(path: '/portfolio/:id', builder: (context, state) => PortfolioDetailScreen(workId: state.pathParameters['id']!)),
       GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(path: '/forgot-password', builder: (context, state) => const ForgotPasswordScreen()),

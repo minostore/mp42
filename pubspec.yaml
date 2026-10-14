@@ -1,5 +1,5 @@
 name: fahmani
-description: تطبيق مسار لمنصة الكورسات
+description: تطبيق فهمت
 publish_to: "none"
 version: 1.0.0+1
 
@@ -41,6 +41,7 @@ dependencies:
   firebase_messaging: 15.1.5
   flutter_local_notifications: 17.2.3
   camera: 0.11.0+2
+  file_picker: ^8.1.2   # اختيار PDF/صورة لمشاركتها في الميتنج
   pdfx: 2.9.2   # مثبّت: النسخة 2.10.0 تحتاج vector_math أحدث من المتاح في Flutter 3.24.5
 
 dev_dependencies:

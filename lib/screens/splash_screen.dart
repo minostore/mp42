@@ -44,7 +44,7 @@ class _SplashScreenState extends State<SplashScreen> {
               child: const Icon(Icons.school_outlined, color: AppColors.ink, size: 40),
             ),
             const SizedBox(height: 18),
-            Text('مسار',
+            Text('فهمت',
                 style: Theme.of(context)
                     .textTheme
                     .headlineMedium

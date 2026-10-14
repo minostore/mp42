@@ -249,7 +249,7 @@ class ErrorCenter {
     if (e is PlatformException) {
       final c = e.code.toLowerCase();
       if (c.contains('permission')) {
-        return mk('صلاحية مطلوبة من الجهاز', 'لم تمنح التطبيق صلاحية: ${e.code}.', 'افتح إعدادات الهاتف ← التطبيقات ← مسار ← الأذونات وفعّل الصلاحية.', tech: '${e.code}: ${e.message}');
+        return mk('صلاحية مطلوبة من الجهاز', 'لم تمنح التطبيق صلاحية: ${e.code}.', 'افتح إعدادات الهاتف ← التطبيقات ← فهمت ← الأذونات وفعّل الصلاحية.', tech: '${e.code}: ${e.message}');
       }
       return mk('خطأ من نظام الجهاز', 'رمز: ${e.code}.', 'انسخ التفاصيل وأرسلها للمطوّر.', tech: '${e.code}: ${e.message}');
     }
