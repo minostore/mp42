@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../screens/app_update_screen.dart';
 import '../services/app_update_service.dart';
+import '../services/firebase_bootstrap.dart';
 
 /// يلفّ التطبيق كله: عند الفتح يفحص التحديثات.
 /// - إجباري → يعرض شاشة التحديث فقط ولا يفتح التطبيق.
@@ -39,6 +40,11 @@ class _UpdateGateState extends State<UpdateGate> with WidgetsBindingObserver {
   }
 
   Future<void> _check() async {
+    // انتظر جاهزية Firebase (يبدأ في الخلفية) حتى لا يفشل الفحص الأول بصمت
+    for (var i = 0; i < 40 && !FirebaseBootstrap.instance.ready.value; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      if (!mounted) return;
+    }
     final u = await AppUpdateService.instance.check();
     if (mounted) setState(() => _update = u);
   }

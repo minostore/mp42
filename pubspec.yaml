@@ -42,6 +42,8 @@ dependencies:
   flutter_local_notifications: 17.2.3
   camera: 0.11.0+2
   file_picker: ^8.1.2   # اختيار PDF/صورة لمشاركتها في الميتنج
+  device_info_plus: ^10.1.2   # معمارية الجهاز لاختيار APK المناسب
+  ota_update: ^6.0.0          # تنزيل وتثبيت تحديث الـ APK مع نسبة التقدم
   pdfx: 2.9.2   # مثبّت: النسخة 2.10.0 تحتاج vector_math أحدث من المتاح في Flutter 3.24.5
 
 dev_dependencies:

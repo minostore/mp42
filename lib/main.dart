@@ -9,7 +9,7 @@ import 'app_router.dart';
 import 'theme/app_theme.dart';
 import 'services/deep_link_service.dart';
 import 'services/screen_protection_service.dart';
-import 'services/app_update_service.dart';
+import 'widgets/update_gate.dart';
 import 'services/notification_service.dart';
 import 'services/firebase_bootstrap.dart';
 import 'services/error_center.dart';
@@ -56,9 +56,7 @@ class _MasarAppState extends State<MasarApp> {
   late final router = buildRouter();
   final deepLinkService = DeepLinkService();
   final screenProtection = ScreenProtectionService();
-  final appUpdateService = AppUpdateService();
   bool _blockContent = false;
-  bool _updateDialogShown = false;
 
   @override
   void initState() {
@@ -73,7 +71,6 @@ class _MasarAppState extends State<MasarApp> {
       // Firebase Messaging must not be touched until the Firebase bootstrap
       // controller reports that native Firebase is ready.
       _initMessagingSafely();
-      _checkForUpdate();
     });
     screenProtection.shouldBlockContent.listen((block) {
       if (mounted) setState(() => _blockContent = block);
@@ -124,47 +121,6 @@ class _MasarAppState extends State<MasarApp> {
     }
   }
 
-  Future<void> _checkForUpdate() async {
-    try {
-      // Give Firebase/router time to finish starting before showing a dialog.
-      await Future<void>.delayed(const Duration(seconds: 2));
-      if (!mounted || _updateDialogShown) return;
-
-      final update = await appUpdateService.checkForAndroidUpdate();
-      if (!mounted || update == null || _updateDialogShown) return;
-
-      _updateDialogShown = true;
-      await showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.paper,
-        title: const Text('تحديث جديد متاح'),
-        content: Text(
-          'يوجد إصدار جديد من التطبيق (${update.versionName}).\n'
-          'اضغط «تحديث الآن» لتحميل أحدث نسخة.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('لاحقًا'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () async {
-              Navigator.of(context).pop();
-              await appUpdateService.openUpdate(update);
-            },
-            icon: const Icon(Icons.system_update),
-            label: const Text('تحديث الآن'),
-          ),
-        ],
-      ),
-      );
-    } catch (_) {
-      // Optional update checking must never affect normal app usage.
-    }
-  }
-
   @override
   void dispose() {
     FirebaseBootstrap.instance.error.removeListener(_onBootstrapError);
@@ -194,7 +150,7 @@ class _MasarAppState extends State<MasarApp> {
           textDirection: TextDirection.rtl,
           child: Stack(
             children: [
-              child!,
+              UpdateGate(child: child ?? const SizedBox()),
               // iOS-only in practice (Android never sets _blockContent since
               // FLAG_SECURE already blocks capture at the OS level). Covers
               // every screen — not just the player — the instant a

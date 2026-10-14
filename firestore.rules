@@ -65,6 +65,12 @@ service cloud.firestore {
     }
 
 
+    // تحديثات التطبيق: القراءة للجميع (الفحص قبل تسجيل الدخول)، الكتابة للأدمن
+    match /appUpdates/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     match /scheduledNotifications/{id} {
       allow read: if isAdmin();
       allow create, update, delete: if isAdmin();
