@@ -33,6 +33,25 @@ jobs:
       - name: Configure Flutter Android
         run: echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
 
+      - name: Setup release signing (fixed keystore)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::warning::KEYSTORE_BASE64 غير موجود: سيُوقَّع الـ APK بمفتاح debug وقد يفشل تثبيت التحديثات فوق النسخة القديمة"
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.jks
+          {
+            echo "storeFile=release.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyPassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+          } > android/key.properties
+          echo "release signing configured"
+
       - name: Flutter Pub Get
         run: flutter pub get
 

@@ -41,3 +41,5 @@ functions/.env
 # Environment / secrets you add later
 .env
 *.env.local
+
+android/key.properties

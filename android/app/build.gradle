@@ -20,6 +20,14 @@ dependencies {
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"
 }
 
+// توقيع ثابت للإصدار: بدونه كل بناء على GitHub يُوقَّع بمفتاح debug عشوائي مختلف،
+// فيفشل تثبيت التحديث فوق النسخة القديمة («التطبيق لم يُثبَّت»).
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
 android {
     namespace "com.Fahmani"
     compileSdk 35
@@ -28,8 +36,20 @@ android {
         applicationId "com.Fahmani"
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName "1.0.0"
+        // يأخذ الرقم من --build-number / --build-name (أو من pubspec.yaml)
+        versionCode flutter.versionCode
+        versionName flutter.versionName
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias keystoreProperties["keyAlias"]
+                keyPassword keystoreProperties["keyPassword"]
+                storeFile file(keystoreProperties["storeFile"])
+                storePassword keystoreProperties["storePassword"]
+            }
+        }
     }
 
     compileOptions {
@@ -44,7 +64,7 @@ android {
 
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
             // R8 shrinking can strip FlutterFire's platform-channel classes in
             // release builds and cause "channel-error" on Firebase startup.
             minifyEnabled false
