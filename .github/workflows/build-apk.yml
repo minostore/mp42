@@ -55,6 +55,14 @@ jobs:
                   print('already patched', f)
           PY
 
+      - name: Patch ota_update compileSdk (fixes android:attr/lStar not found)
+        run: |
+          for f in ~/.pub-cache/hosted/pub.dev/ota_update-*/android/build.gradle; do
+            [ -f "$f" ] || continue
+            sed -i -E 's/compileSdk(Version)?[ =]+[0-9]+/compileSdkVersion 35/' "$f"
+            echo "patched $f"; grep -n "compileSdk" "$f"
+          done
+
       - name: Record resolved Firebase versions
         run: |
           python3 - <<'PY'

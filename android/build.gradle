@@ -11,6 +11,18 @@ subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
 
+// بعض الحزم القديمة (مثل ota_update) تُترجم على compileSdk 28 فيفشل البناء
+// بالخطأ: resource android:attr/lStar not found. نرفعها لنفس إصدار التطبيق.
+subprojects {
+    afterEvaluate { p ->
+        if (p.name != "app" && p.hasProperty("android")) {
+            p.android {
+                compileSdkVersion 35
+            }
+        }
+    }
+}
+
 subprojects {
     project.evaluationDependsOn(":app")
 }
