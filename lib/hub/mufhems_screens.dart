@@ -11,7 +11,8 @@ final _db = FirebaseFirestore.instance;
 
 // ======================= تصفح المفهمين =======================
 class MufhemsScreen extends StatefulWidget {
-  const MufhemsScreen({super.key});
+  final bool embedded;
+  const MufhemsScreen({super.key, this.embedded = false});
   @override
   State<MufhemsScreen> createState() => _MufhemsScreenState();
 }
@@ -22,7 +23,7 @@ class _MufhemsScreenState extends State<MufhemsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('تصفح المفهمين')),
+      appBar: widget.embedded ? null : AppBar(title: const Text('تصفح المفهمين')),
       body: Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
@@ -126,7 +127,8 @@ class MufhemProfileScreen extends StatelessWidget {
 
 // ======================= تصفح أعمال المفهمين =======================
 class PortfolioScreen extends StatefulWidget {
-  const PortfolioScreen({super.key});
+  final bool embedded;
+  const PortfolioScreen({super.key, this.embedded = false});
   @override
   State<PortfolioScreen> createState() => _PortfolioScreenState();
 }
@@ -137,7 +139,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('أعمال المفهمين')),
+      appBar: widget.embedded ? null : AppBar(title: const Text('أعمال المفهمين')),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: _db.collection('portfolio').where('status', isEqualTo: 'approved').snapshots(),
         builder: (context, snap) {

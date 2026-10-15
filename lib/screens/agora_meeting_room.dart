@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
@@ -21,6 +22,10 @@ class AgoraMeetingRoom extends StatefulWidget {
   final int uid;
   final String displayName;
   final bool moderator;
+  // اجتماع مجموعة: نراقب وجود الجلسة (إن حُذفت عند إنهائها يُخرَج الجميع)، والمدير ينهيها للجميع
+  final String? groupId;
+  final String? sessionId;
+  final Future<void> Function()? onEndForAll;
 
   const AgoraMeetingRoom({
     super.key,
@@ -30,6 +35,9 @@ class AgoraMeetingRoom extends StatefulWidget {
     required this.uid,
     required this.displayName,
     required this.moderator,
+    this.groupId,
+    this.sessionId,
+    this.onEndForAll,
   });
 
   @override
@@ -59,6 +67,11 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   // data stream
   int? _streamId;
 
+  // أسماء المتصلين (كل مشارك يرسل اسمه عبر data stream) + مراقبة وجود الجلسة
+  final Map<int, String> _names = {};
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sessionSub;
+  bool _closing = false;
+
   // السبورة
   bool _boardOpen = false;
   final List<_Stroke> _strokes = [];
@@ -77,7 +90,23 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   void initState() {
     super.initState();
     _initialize();
+    _watchSession();
   }
+
+  void _watchSession() {
+    final g = widget.groupId, s = widget.sessionId;
+    if (g == null || s == null) return;
+    _sessionSub = FirebaseFirestore.instance.collection('groups').doc(g).collection('sessions').doc(s).snapshots().listen((snap) {
+      if (!snap.exists && snap.metadata.isFromCache) return; // لا نعتبرها انتهت بسبب نسخة محلية قديمة
+      final live = snap.exists && (snap.data()?['status'] ?? 'live') == 'live';
+      if (!live && mounted && !_closing) {
+        if (!widget.moderator) _toast('أنهى مدير الاجتماع هذه الجلسة');
+        _leave();
+      }
+    }, onError: (_) {});
+  }
+
+  void _sendHello() => _send({'t': 'n', 'n': widget.displayName});
 
   Future<void> _initialize() async {
     try {
@@ -102,10 +131,12 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           if (mounted) setState(() { _joined = true; _busy = false; });
           try {
             _streamId = await engine.createDataStream(const DataStreamConfig(syncWithAudio: false, ordered: true));
+            _sendHello();
           } catch (_) {}
         },
         onUserJoined: (connection, remoteUid, elapsed) {
           if (mounted) setState(() => _remoteUsers.add(remoteUid));
+          _sendHello(); // يعرّف المنضم الجديد باسمي
           // المدرّس يعيد إرسال حالة السبورة/الملف للمنضم الجديد
           if (widget.moderator) {
             if (_boardOpen) _send({'t': 'b', 'o': 1});
@@ -113,10 +144,10 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           }
         },
         onUserOffline: (connection, remoteUid, reason) {
-          if (mounted) setState(() => _remoteUsers.remove(remoteUid));
+          if (mounted) setState(() { _remoteUsers.remove(remoteUid); _names.remove(remoteUid); });
         },
         onStreamMessage: (connection, remoteUid, streamId, data, length, sentTs) {
-          _onData(data);
+          _onData(data, remoteUid);
         },
         onError: (err, msg) {
           String text = 'خطأ Agora: $err ${msg ?? ''}';
@@ -238,10 +269,14 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     } catch (_) {}
   }
 
-  void _onData(Uint8List data) {
+  void _onData(Uint8List data, int fromUid) {
     try {
       final m = jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
       switch (m['t']) {
+        case 'n': // اسم مشارك
+          if (!mounted) return;
+          setState(() => _names[fromUid] = (m['n'] ?? '').toString());
+          break;
         case 'b': // فتح/غلق السبورة
           if (!mounted) return;
           setState(() {
@@ -386,12 +421,69 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   }
 
   Future<void> _leave() async {
+    if (_closing) return;
+    _closing = true;
     try { await _engine?.leaveChannel(); } catch (_) {}
-    if (mounted) Navigator.of(context).pop();
+    if (mounted && Navigator.of(context).canPop()) Navigator.of(context).pop();
+  }
+
+  /// زر الإنهاء: المدير يختار بين المغادرة فقط وإنهاء الاجتماع للجميع (يُحذف من المجموعة ويُخرَج الكل).
+  Future<void> _endPressed() async {
+    if (!widget.moderator || widget.onEndForAll == null) return _leave();
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('إنهاء الاجتماع'),
+        content: const Text('إنهاء الاجتماع للجميع سيخرج كل المتصلين ويحذف الجلسة من المجموعة عند الكل.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, 'cancel'), child: const Text('إلغاء')),
+          TextButton(onPressed: () => Navigator.pop(ctx, 'leave'), child: const Text('مغادرة فقط')),
+          FilledButton(style: FilledButton.styleFrom(backgroundColor: const Color(0xFFDC2626)), onPressed: () => Navigator.pop(ctx, 'end'), child: const Text('إنهاء للجميع')),
+        ],
+      ),
+    );
+    if (choice == 'leave') return _leave();
+    if (choice == 'end') {
+      try {
+        await widget.onEndForAll!();
+      } catch (e) {
+        _toast('تعذر إنهاء الاجتماع: $e');
+        return;
+      }
+      await _leave();
+    }
+  }
+
+  /// قائمة المتصلين (لمدير الاجتماع).
+  void _showParticipants() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF171B22),
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.all(12),
+          children: [
+            Text('المتصلون الآن (${_remoteUsers.length + 1})', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const CircleAvatar(child: Icon(Icons.person)),
+              title: Text('${widget.displayName} (أنت)', style: const TextStyle(color: Colors.white)),
+            ),
+            for (final u in _remoteUsers)
+              ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+                title: Text((_names[u] ?? '').isEmpty ? 'مشارك' : _names[u]!, style: const TextStyle(color: Colors.white)),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   void dispose() {
+    _sessionSub?.cancel();
     _flushTimer?.cancel();
     final engine = _engine;
     if (engine != null) {
@@ -479,12 +571,14 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
         children: [
           _control(icon: _muted ? Icons.mic_off : Icons.mic, label: _muted ? 'فتح المايك' : 'كتم المايك', active: !_muted, onTap: _toggleMic),
           _control(icon: _cameraOff ? Icons.videocam_off : Icons.videocam, label: _cameraOff ? 'فتح الكاميرا' : 'إيقاف الكاميرا', active: !_cameraOff, onTap: _toggleCamera),
-          _control(icon: _speakerOn ? Icons.volume_up : Icons.hearing, label: _speakerOn ? 'السماعة' : 'سماعة الأذن', onTap: () async {
+          _control(icon: _speakerOn ? Icons.volume_up : Icons.hearing, label: _speakerOn ? 'السماعة' : 'الأذن', onTap: () async {
             setState(() => _speakerOn = !_speakerOn);
             await _engine?.setEnableSpeakerphone(_speakerOn);
           }),
+          if (widget.moderator) _control(icon: _sharingScreen ? Icons.stop_screen_share : Icons.screen_share, label: _sharingScreen ? 'إيقاف المشاركة' : 'مشاركة الشاشة', active: _sharingScreen, onTap: _toggleScreenShare),
+          if (widget.moderator) _control(icon: Icons.people, label: 'المتصلون', onTap: () async => _showParticipants()),
           if (widget.moderator) _control(icon: Icons.add_circle_outline, label: 'المزيد', onTap: () async => _showTools()),
-          _control(icon: Icons.call_end, label: 'إنهاء', color: const Color(0xFFDC2626), onTap: _leave),
+          _control(icon: Icons.call_end, label: 'إنهاء', color: const Color(0xFFDC2626), onTap: _endPressed),
         ],
       ),
     );
@@ -651,12 +745,12 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           style: IconButton.styleFrom(
             backgroundColor: active ? Colors.white : color,
             foregroundColor: active ? Colors.black : Colors.white,
-            fixedSize: const Size(54, 54),
+            fixedSize: const Size(46, 46),
           ),
           icon: Icon(icon),
         ),
         const SizedBox(height: 4),
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10)),
       ],
     );
   }

@@ -62,6 +62,16 @@ android {
         jvmTarget = "17"
     }
 
+    // تقليل الحجم: Agora يحزّم مكتبات «إضافات» اختيارية (خلفية افتراضية، عزل ضوضاء بالذكاء الاصطناعي، AV1، فحص محتوى...)
+    // والتطبيق لا يستخدمها. نُبقي إضافة مشاركة الشاشة وترميز الفيديو/الصوت الأساسي فقط.
+    packagingOptions {
+        [
+            'ai_echo_cancellation', 'ai_noise_suppression', 'audio_beauty', 'clear_vision', 'content_inspect',
+            'face_capture', 'face_detection', 'lip_sync', 'pvc', 'segmentation', 'spatial_audio',
+            'super_resolution', 'video_av1_decoder', 'video_av1_encoder', 'video_quality_analyzer', 'udrm3',
+        ].each { name -> exclude "**/libagora_${name}_extension.so" }
+    }
+
     buildTypes {
         release {
             signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug

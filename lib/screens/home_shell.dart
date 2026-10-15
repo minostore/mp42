@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'home_tab.dart';
-import 'my_courses_tab.dart';
+import 'hub_tabs.dart';
 import 'meetings_tab.dart';
-import 'groups_tab.dart';
-import 'account_tab.dart';
 import '../theme/app_theme.dart';
 import '../hub/app_drawer.dart';
 
@@ -21,11 +18,10 @@ class _HomeShellState extends State<HomeShell> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   final List<Widget> _tabs = const [
-    HomeTab(),
-    MyCoursesTab(),
+    CoursesHubTab(),
     MeetingsTab(),
-    GroupsTab(),
-    AccountTab(),
+    IstifhamatHubTab(),
+    MufhemsHubTab(),
   ];
 
   @override
@@ -53,11 +49,10 @@ class _HomeShellState extends State<HomeShell> {
         backgroundColor: AppColors.white,
         indicatorColor: AppColors.emeraldLight,
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'الرئيسية'),
-          NavigationDestination(icon: Icon(Icons.school_outlined), selectedIcon: Icon(Icons.school), label: 'كورساتي'),
+          NavigationDestination(icon: Icon(Icons.school_outlined), selectedIcon: Icon(Icons.school), label: 'الكورسات'),
           NavigationDestination(icon: Icon(Icons.video_camera_front_outlined), selectedIcon: Icon(Icons.video_camera_front), label: 'المحاضرات'),
-          NavigationDestination(icon: Icon(Icons.groups_outlined), selectedIcon: Icon(Icons.groups), label: 'المجموعات'),
-          NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'حسابي'),
+          NavigationDestination(icon: Icon(Icons.help_outline), selectedIcon: Icon(Icons.help), label: 'الاستفهامات'),
+          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'المفهمين'),
           NavigationDestination(icon: Icon(Icons.menu), selectedIcon: Icon(Icons.menu_open), label: 'المزيد'),
         ],
       ),

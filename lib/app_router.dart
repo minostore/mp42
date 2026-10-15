@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'screens/splash_screen.dart';
@@ -19,6 +20,9 @@ import 'screens/group_pdf_screen.dart';
 import 'screens/group_video_screen.dart';
 import 'screens/group_quiz_screen.dart';
 import 'screens/lecture_recordings_screen.dart';
+import 'screens/groups_tab.dart';
+import 'screens/account_tab.dart';
+import 'screens/favorites_tab.dart';
 import 'services/firebase_bootstrap.dart';
 import 'hub/requests_screens.dart';
 import 'hub/mufhems_screens.dart';
@@ -78,6 +82,9 @@ GoRouter buildRouter() {
       GoRoute(path: '/mufhems/:id', builder: (context, state) => MufhemProfileScreen(mufhemId: state.pathParameters['id']!)),
       GoRoute(path: '/portfolio', builder: (context, state) => const PortfolioScreen()),
       GoRoute(path: '/portfolio/:id', builder: (context, state) => PortfolioDetailScreen(workId: state.pathParameters['id']!)),
+      GoRoute(path: '/groups', builder: (context, state) => const GroupsTab()),
+      GoRoute(path: '/account', builder: (context, state) => Scaffold(appBar: AppBar(title: const Text('حسابي')), body: const AccountTab())),
+      GoRoute(path: '/favorites', builder: (context, state) => const FavoritesTab()),
       GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(path: '/forgot-password', builder: (context, state) => const ForgotPasswordScreen()),

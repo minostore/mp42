@@ -26,7 +26,7 @@ class MyCoursesTab extends StatelessWidget {
             Expanded(
               child: TabBarView(
                 children: [
-                  _PurchasedCourses(userId: user.uid, service: service),
+                  PurchasedCoursesList(userId: user.uid, service: service),
                   _FavoriteCourses(userId: user.uid, service: service),
                 ],
               ),
@@ -38,10 +38,10 @@ class MyCoursesTab extends StatelessWidget {
   }
 }
 
-class _PurchasedCourses extends StatelessWidget {
+class PurchasedCoursesList extends StatelessWidget {
   final String userId;
   final FirestoreService service;
-  const _PurchasedCourses({required this.userId, required this.service});
+  const PurchasedCoursesList({super.key, required this.userId, required this.service});
 
   @override
   Widget build(BuildContext context) {

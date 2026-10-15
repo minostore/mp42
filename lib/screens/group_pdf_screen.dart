@@ -65,6 +65,23 @@ class _GroupPdfScreenState extends State<GroupPdfScreen> {
   final Map<int, _PageState> _states = {};
   int _saving = 0;
 
+  // التكبير/التصغير: أزرار + قرصة بإصبعين (في وضع التصفح)
+  double _zoom = 1.0;
+  double _pinchBaseZoom = 1.0;
+  double _pinchBaseDist = 0;
+  final Map<int, Offset> _pointers = {};
+  void _setZoom(double z) => setState(() => _zoom = z.clamp(1.0, 4.0));
+  void _pointerChanged() {
+    if (_pointers.length == 2) {
+      final p = _pointers.values.toList();
+      final dist = (p[0] - p[1]).distance;
+      if (_pinchBaseDist == 0) { _pinchBaseDist = dist; _pinchBaseZoom = _zoom; }
+      else if (_tool == _Tool.browse) { _setZoom(_pinchBaseZoom * dist / _pinchBaseDist); }
+    } else {
+      _pinchBaseDist = 0;
+    }
+  }
+
   String get _uid => FirebaseAuth.instance.currentUser!.uid;
 
   @override
@@ -112,6 +129,9 @@ class _GroupPdfScreenState extends State<GroupPdfScreen> {
         title: Text(widget.title, overflow: TextOverflow.ellipsis),
         actions: [
           if (_saving > 0) const Padding(padding: EdgeInsets.all(14), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
+          IconButton(tooltip: 'تصغير', icon: const Icon(Icons.zoom_out), onPressed: doc == null || _zoom <= 1.0 ? null : () => _setZoom(_zoom - 0.25)),
+          GestureDetector(onTap: doc == null ? null : () => _setZoom(1.0), child: Center(child: Text('${(_zoom * 100).round()}%', style: const TextStyle(fontWeight: FontWeight.w800)))),
+          IconButton(tooltip: 'تكبير', icon: const Icon(Icons.zoom_in), onPressed: doc == null || _zoom >= 4.0 ? null : () => _setZoom(_zoom + 0.25)),
           IconButton(tooltip: 'حفظ', icon: const Icon(Icons.save_outlined), onPressed: doc == null ? null : _saveAll),
         ],
       ),
@@ -119,21 +139,39 @@ class _GroupPdfScreenState extends State<GroupPdfScreen> {
           ? Center(child: Padding(padding: const EdgeInsets.all(20), child: Text(_error!, textAlign: TextAlign.center)))
           : doc == null
               ? const Center(child: CircularProgressIndicator())
-              : ListView.builder(
-                  physics: drawing ? const NeverScrollableScrollPhysics() : const ClampingScrollPhysics(),
-                  padding: const EdgeInsets.all(8),
-                  cacheExtent: 1500,
-                  itemCount: doc.pagesCount,
-                  itemBuilder: (context, i) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _PdfPageView(
-                      key: ValueKey('p${i + 1}'),
-                      doc: doc,
-                      pageNumber: i + 1,
-                      state: _stateFor(i + 1),
-                      tool: _tool,
-                      color: _color,
-                      watermark: _media?.watermarkText ?? '',
+              : LayoutBuilder(
+                  builder: (context, bc) => Listener(
+                    // Listener لا يشارك في ساحة الإيماءات فلا يتعارض مع التمرير والرسم
+                    onPointerDown: (e) { _pointers[e.pointer] = e.position; _pointerChanged(); },
+                    onPointerMove: (e) { _pointers[e.pointer] = e.position; _pointerChanged(); },
+                    onPointerUp: (e) { _pointers.remove(e.pointer); _pointerChanged(); },
+                    onPointerCancel: (e) { _pointers.remove(e.pointer); _pointerChanged(); },
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      physics: drawing ? const NeverScrollableScrollPhysics() : const ClampingScrollPhysics(),
+                      child: SizedBox(
+                        width: bc.maxWidth * _zoom,
+                        height: bc.maxHeight,
+                        child: ListView.builder(
+                          physics: drawing ? const NeverScrollableScrollPhysics() : const ClampingScrollPhysics(),
+                          padding: const EdgeInsets.all(8),
+                          cacheExtent: 1500,
+                          itemCount: doc.pagesCount,
+                          itemBuilder: (context, i) => Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _PdfPageView(
+                              key: ValueKey('p${i + 1}'),
+                              doc: doc,
+                              pageNumber: i + 1,
+                              state: _stateFor(i + 1),
+                              tool: _tool,
+                              color: _color,
+                              watermark: _media?.watermarkText ?? '',
+                              zoom: _zoom,
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -260,7 +298,8 @@ class _PdfPageView extends StatefulWidget {
   final _Tool tool;
   final Color color;
   final String watermark;
-  const _PdfPageView({super.key, required this.doc, required this.pageNumber, required this.state, required this.tool, required this.color, required this.watermark});
+  final double zoom;
+  const _PdfPageView({super.key, required this.doc, required this.pageNumber, required this.state, required this.tool, required this.color, required this.watermark, this.zoom = 1.0});
 
   @override
   State<_PdfPageView> createState() => _PdfPageViewState();
@@ -270,6 +309,16 @@ class _PdfPageViewState extends State<_PdfPageView> {
   Uint8List? _bytes;
   double _ratio = 0.707;
   List<Offset>? _current;
+  int _scale = 2; // دقة العرض: تزيد عند التكبير ليبقى النص واضحًا
+
+  static int _scaleFor(double z) => z <= 1.0 ? 2 : (z <= 2.0 ? 3 : 4);
+
+  @override
+  void didUpdateWidget(covariant _PdfPageView old) {
+    super.didUpdateWidget(old);
+    final s = _scaleFor(widget.zoom);
+    if (s != _scale) { _scale = s; _render(); }
+  }
 
   @override
   void initState() {
@@ -281,7 +330,7 @@ class _PdfPageViewState extends State<_PdfPageView> {
   Future<void> _render() async {
     try {
       final page = await widget.doc.getPage(widget.pageNumber);
-      final img = await page.render(width: page.width * 2, height: page.height * 2, format: PdfPageImageFormat.jpeg, backgroundColor: '#FFFFFF', quality: 85);
+      final img = await page.render(width: page.width * _scale, height: page.height * _scale, format: PdfPageImageFormat.jpeg, backgroundColor: '#FFFFFF', quality: 85);
       final ratio = page.height / page.width;
       await page.close();
       if (mounted && img != null) setState(() { _bytes = img.bytes; _ratio = ratio; });

@@ -10,7 +10,8 @@ CollectionReference<Map<String, dynamic>> get _istifhams => FirebaseFirestore.in
 
 // ======================= تصفح الاستفهامات =======================
 class BrowseRequestsScreen extends StatefulWidget {
-  const BrowseRequestsScreen({super.key});
+  final bool embedded; // داخل تبويب «الاستفهامات» بدون شريط علوي
+  const BrowseRequestsScreen({super.key, this.embedded = false});
   @override
   State<BrowseRequestsScreen> createState() => _BrowseRequestsScreenState();
 }
@@ -21,11 +22,11 @@ class _BrowseRequestsScreenState extends State<BrowseRequestsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('تصفح الاستفهامات')),
+      appBar: widget.embedded ? null : AppBar(title: const Text('تصفح الاستفهامات')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/requests/new'),
         icon: const Icon(Icons.add),
-        label: const Text('طرح استفهام'),
+        label: const Text('طرح استفهام جديد'),
       ),
       body: Column(children: [
         Padding(
@@ -106,7 +107,8 @@ class RequestCard extends StatelessWidget {
 
 // ======================= استفهاماتي =======================
 class MyRequestsScreen extends StatelessWidget {
-  const MyRequestsScreen({super.key});
+  final bool embedded;
+  const MyRequestsScreen({super.key, this.embedded = false});
 
   static const _tabs = <(String, String)>[
     ('pending_approval', 'المراجعة'),
@@ -124,15 +126,22 @@ class MyRequestsScreen extends StatelessWidget {
     return DefaultTabController(
       length: _tabs.length,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('استفهاماتي'),
-          bottom: TabBar(isScrollable: true, tabs: [for (final t in _tabs) Tab(text: t.$2)]),
-        ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: () => context.push('/requests/new'),
-          icon: const Icon(Icons.add),
-          label: const Text('طرح استفهام'),
-        ),
+        appBar: embedded
+            ? PreferredSize(
+                preferredSize: const Size.fromHeight(48),
+                child: Material(color: Colors.white, child: TabBar(isScrollable: true, tabs: [for (final t in _tabs) Tab(text: t.$2)])),
+              )
+            : AppBar(
+                title: const Text('استفهاماتي'),
+                bottom: TabBar(isScrollable: true, tabs: [for (final t in _tabs) Tab(text: t.$2)]),
+              ),
+        floatingActionButton: embedded
+            ? null
+            : FloatingActionButton.extended(
+                onPressed: () => context.push('/requests/new'),
+                icon: const Icon(Icons.add),
+                label: const Text('طرح استفهام'),
+              ),
         body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: _istifhams.where('mustafhemId', isEqualTo: uid).limit(50).snapshots(),
           builder: (context, a) => StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(

@@ -13,6 +13,7 @@ class AppUpdateInfo {
   final String description;
   final bool mandatory;
   final int apkSize;
+  final String imageUrl;
 
   const AppUpdateInfo({
     required this.id,
@@ -22,6 +23,7 @@ class AppUpdateInfo {
     required this.description,
     required this.mandatory,
     required this.apkSize,
+    this.imageUrl = '',
   });
 }
 
@@ -33,7 +35,10 @@ class AppUpdateService {
   Future<AppUpdateInfo?> check() async {
     try {
       final info = await PackageInfo.fromPlatform();
-      final current = int.tryParse(info.buildNumber) ?? 0;
+      var current = int.tryParse(info.buildNumber) ?? 0;
+      // مع --split-per-abi يضيف Flutter إزاحة لرقم الإصدار (arm-v7a=+1000، arm64=+2000، x86=+3000...)
+      // فنُرجعه للرقم الأصلي (رقم الـ build) قبل مقارنته برقم التحديث المنشور من لوحة التحكم.
+      if (current >= 1000 && current ~/ 1000 <= 4) current = current % 1000;
       // بدون where+orderBy معًا حتى لا نحتاج فهرسًا مركبًا
       final snap = await FirebaseFirestore.instance
           .collection('appUpdates')
@@ -64,6 +69,7 @@ class AppUpdateService {
         description: (top['description'] ?? '').toString(),
         mandatory: anyMandatory,
         apkSize: size,
+        imageUrl: (top['imageUrl'] ?? '').toString().trim(),
       );
     } catch (_) {
       // فشل الفحص (لا إنترنت…): لا نمنع المستخدم من فتح التطبيق

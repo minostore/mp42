@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:ota_update/ota_update.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -16,7 +17,7 @@ class _C {
   static const soft = Color(0xFFEEF4F6);
 }
 
-/// شاشة التحديث: لوجو التطبيق + عنوان + وصف + تنزيل وتثبيت.
+/// شاشة التحديث بملء الصفحة: صورة + عنوان + وصف + تنزيل وتثبيت.
 /// - إجباري: لا يوجد زر تخطي ولا رجوع.
 /// - اختياري: زر «تخطي الآن».
 class AppUpdateScreen extends StatefulWidget {
@@ -91,122 +92,124 @@ class _AppUpdateScreenState extends State<AppUpdateScreen> {
   Widget build(BuildContext context) {
     final u = widget.update;
     final mandatory = u.mandatory;
+    final hasImage = u.imageUrl.isNotEmpty;
+    final height = MediaQuery.of(context).size.height;
     return PopScope(
       canPop: !mandatory,
       child: Directionality(
         textDirection: TextDirection.rtl,
         child: Scaffold(
-          backgroundColor: _C.bg,
-          body: SafeArea(
-            child: Column(children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
-                  child: Column(children: [
-                    // اللوجو
-                    Container(
-                      width: 104, height: 104,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(colors: [_C.primary, _C.primaryDark], begin: Alignment.topRight, end: Alignment.bottomLeft),
-                        borderRadius: BorderRadius.circular(32),
-                        boxShadow: [BoxShadow(color: _C.primary.withOpacity(.35), blurRadius: 28, offset: const Offset(0, 12))],
-                      ),
-                      padding: const EdgeInsets.all(22),
-                      // ضع لوجو التطبيق في assets/images/logo.png وسجّله في pubspec.yaml
-                      child: Image.asset('assets/images/logo.png', fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => const Icon(Icons.school_rounded, color: Colors.white, size: 52)),
-                    ),
-                    const SizedBox(height: 22),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: (mandatory ? _C.accent : _C.primary).withOpacity(.12),
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                      child: Text(
-                        mandatory ? 'تحديث إجباري' : 'تحديث جديد متاح',
-                        style: TextStyle(color: mandatory ? _C.accent : _C.primaryDark, fontWeight: FontWeight.w900, fontSize: 12.5),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Text(u.title, textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: _C.ink, height: 1.35)),
-                    const SizedBox(height: 6),
-                    Text('الإصدار ${u.versionName}${_size(u.apkSize).isEmpty ? '' : ' • ${_size(u.apkSize)}'}',
-                        style: const TextStyle(color: _C.muted, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 22),
-                    if (u.description.trim().isNotEmpty)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(color: _C.soft, width: 1.5),
-                        ),
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Row(children: const [
-                            Icon(Icons.auto_awesome_rounded, color: _C.accent, size: 20),
-                            SizedBox(width: 8),
-                            Text('ما الجديد؟', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5, color: _C.ink)),
-                          ]),
-                          const SizedBox(height: 10),
-                          Text(u.description.trim(), style: const TextStyle(height: 1.8, color: _C.ink, fontSize: 14.5)),
-                        ]),
-                      ),
-                    if (mandatory) ...[
-                      const SizedBox(height: 14),
-                      const Text('يجب تحديث التطبيق للمتابعة.',
-                          style: TextStyle(color: _C.accent, fontWeight: FontWeight.w800)),
-                    ],
-                    if (_error != null) ...[
-                      const SizedBox(height: 14),
-                      Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.w700)),
-                    ],
-                  ]),
+          backgroundColor: _C.ink,
+          body: SizedBox.expand(
+            child: Stack(fit: StackFit.expand, children: [
+              // الخلفية: صورة التحديث تملأ الصفحة كاملة (أو تدرّج بألوان المنصة لو لا توجد صورة)
+              if (hasImage)
+                CachedNetworkImage(
+                  imageUrl: u.imageUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (_, __) => const ColoredBox(color: _C.ink),
+                  errorWidget: (_, __, ___) => const _GradientBg(),
+                )
+              else
+                const _GradientBg(),
+              // تدرّج داكن أسفل الصفحة ليظهر النص بوضوح فوق أي صورة
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0x66000000), Color(0x00000000), Color(0xCC000000), Color(0xF2000000)],
+                    stops: [0, .3, .62, 1],
+                  ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
-                decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: _C.soft))),
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  if (_busy) ...[
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(99),
-                      child: LinearProgressIndicator(
-                        value: _progress > 0 ? _progress / 100 : null,
-                        minHeight: 10, backgroundColor: _C.soft,
-                        valueColor: const AlwaysStoppedAnimation(_C.primary),
+              SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    // الأعلى: زر «تخطي» للاختياري فقط
+                    SizedBox(
+                      height: 48,
+                      child: Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: mandatory
+                            ? Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(color: _C.accent, borderRadius: BorderRadius.circular(99)),
+                                child: const Text('تحديث إجباري',
+                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12.5)),
+                              )
+                            : TextButton(
+                                onPressed: _busy ? null : widget.onSkip,
+                                style: TextButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  backgroundColor: Colors.black38,
+                                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(99)),
+                                ),
+                                child: const Text('تخطي', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                              ),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(_progress > 0 ? 'جارٍ التنزيل $_progress%' : 'جارٍ التحضير...',
-                        style: const TextStyle(color: _C.muted, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 10),
-                  ],
-                  SizedBox(
-                    width: double.infinity, height: 56,
-                    child: ElevatedButton.icon(
-                      onPressed: _busy ? null : _start,
-                      icon: const Icon(Icons.system_update_rounded),
-                      label: Text(_error != null ? 'إعادة المحاولة' : 'تحديث الآن',
-                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _C.primary, foregroundColor: Colors.white,
-                        disabledBackgroundColor: _C.primary.withOpacity(.5),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                      ),
-                    ),
-                  ),
-                  if (!mandatory) ...[
+                    const Spacer(),
+                    Text(u.title,
+                        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.white, height: 1.3)),
                     const SizedBox(height: 6),
-                    TextButton(
-                      onPressed: _busy ? null : widget.onSkip,
-                      child: const Text('تخطي الآن', style: TextStyle(color: _C.muted, fontWeight: FontWeight.w800, fontSize: 15)),
+                    Text('الإصدار ${u.versionName}${_size(u.apkSize).isEmpty ? '' : ' • ${_size(u.apkSize)}'}',
+                        style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+                    if (u.description.trim().isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      ConstrainedBox(
+                        constraints: BoxConstraints(maxHeight: height * .26),
+                        child: SingleChildScrollView(
+                          child: Text(u.description.trim(),
+                              style: const TextStyle(height: 1.8, color: Colors.white, fontSize: 15)),
+                        ),
+                      ),
+                    ],
+                    if (mandatory) ...[
+                      const SizedBox(height: 12),
+                      const Text('يجب تحديث التطبيق للمتابعة.',
+                          style: TextStyle(color: Color(0xFFFFB199), fontWeight: FontWeight.w800)),
+                    ],
+                    if (_error != null) ...[
+                      const SizedBox(height: 12),
+                      Text(_error!, style: const TextStyle(color: Color(0xFFFF8A8A), fontWeight: FontWeight.w700)),
+                    ],
+                    const SizedBox(height: 18),
+                    if (_busy) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(99),
+                        child: LinearProgressIndicator(
+                          value: _progress > 0 ? _progress / 100 : null,
+                          minHeight: 10,
+                          backgroundColor: Colors.white24,
+                          valueColor: const AlwaysStoppedAnimation(_C.primary),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(_progress > 0 ? 'جارٍ التنزيل $_progress%' : 'جارٍ التحضير...',
+                          style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 12),
+                    ],
+                    SizedBox(
+                      height: 56,
+                      child: ElevatedButton.icon(
+                        onPressed: _busy ? null : _start,
+                        icon: const Icon(Icons.system_update_rounded),
+                        label: Text(_error != null ? 'إعادة المحاولة' : 'تحديث الآن',
+                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _C.primary,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: _C.primary.withOpacity(.5),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                        ),
+                      ),
                     ),
-                  ],
-                ]),
+                  ]),
+                ),
               ),
             ]),
           ),
@@ -214,4 +217,19 @@ class _AppUpdateScreenState extends State<AppUpdateScreen> {
       ),
     );
   }
+}
+
+/// خلفية بألوان المنصة عند عدم وجود صورة (لا حاجة لأي صورة داخل المشروع).
+class _GradientBg extends StatelessWidget {
+  const _GradientBg();
+  @override
+  Widget build(BuildContext context) => const DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [_C.primary, _C.primaryDark],
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+          ),
+        ),
+      );
 }

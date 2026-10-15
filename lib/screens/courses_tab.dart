@@ -6,7 +6,8 @@ import '../widgets/course_card.dart';
 import '../theme/app_theme.dart';
 
 class CoursesTab extends StatefulWidget {
-  const CoursesTab({super.key});
+  final bool embedded;
+  const CoursesTab({super.key, this.embedded = false});
 
   @override
   State<CoursesTab> createState() => _CoursesTabState();
@@ -22,12 +23,13 @@ class _CoursesTabState extends State<CoursesTab> {
     return SafeArea(
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
-            child: Row(children: [
-              Text('الكورسات', style: Theme.of(context).textTheme.headlineSmall),
-            ]),
-          ),
+          if (!widget.embedded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
+              child: Row(children: [
+                Text('الكورسات', style: Theme.of(context).textTheme.headlineSmall),
+              ]),
+            ),
           SizedBox(
             height: 46,
             child: ListView.separated(

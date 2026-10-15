@@ -26,6 +26,7 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
   Timer? _wmTimer;
   Alignment _wmAlign = Alignment.topLeft;
   final _rnd = Random();
+  double _speed = 1.0;
 
   @override
   void initState() {
@@ -45,12 +46,27 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
           : await svc.getMedia(groupId: widget.groupId, kind: widget.kind, id: widget.itemId);
       final c = VideoPlayerController.networkUrl(Uri.parse(m.url));
       await c.initialize();
+      c.addListener(() { if (mounted) setState(() {}); }); // تحديث الوقت والشريط
       await c.play();
       if (!mounted) { await c.dispose(); return; }
       setState(() { _media = m; _c = c; });
     } catch (e) {
       if (mounted) setState(() => _error = 'تعذر تشغيل المحتوى. تحقق من اتصال الإنترنت وعضويتك، ثم حاول مرة أخرى.\\n\\nالتفاصيل: $e');
     }
+  }
+
+  static String _fmt(Duration d) {
+    final h = d.inHours, m = d.inMinutes % 60, s = d.inSeconds % 60;
+    String two(int n) => n.toString().padLeft(2, '0');
+    return h > 0 ? '$h:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
+  }
+
+  void _skip(VideoPlayerController c, int seconds) {
+    final total = c.value.duration;
+    var target = c.value.position + Duration(seconds: seconds);
+    if (target < Duration.zero) target = Duration.zero;
+    if (target > total) target = total;
+    c.seekTo(target);
   }
 
   @override
@@ -72,7 +88,8 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
             ? Padding(padding: const EdgeInsets.all(20), child: Text(_error!, style: const TextStyle(color: Colors.white), textAlign: TextAlign.center))
             : (c == null || !c.value.isInitialized)
                 ? const CircularProgressIndicator(color: AppColors.gold)
-                : Column(
+                : SingleChildScrollView(
+                    child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       AspectRatio(
@@ -90,17 +107,44 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
                           ],
                         ),
                       ),
-                      VideoProgressIndicator(c, allowScrubbing: true, colors: const VideoProgressColors(playedColor: AppColors.gold)),
+                      // شريط التقديم والتأخير: اسحب للوصول لأي نقطة في الفيديو + الوقت الحالي والمدة
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Row(children: [
+                          Text(_fmt(c.value.position), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                          Expanded(
+                            child: Slider(
+                              value: c.value.position.inMilliseconds.clamp(0, c.value.duration.inMilliseconds).toDouble(),
+                              max: c.value.duration.inMilliseconds.toDouble().clamp(1, double.infinity),
+                              activeColor: AppColors.gold,
+                              inactiveColor: Colors.white24,
+                              onChanged: (v) => c.seekTo(Duration(milliseconds: v.round())),
+                            ),
+                          ),
+                          Text(_fmt(c.value.duration), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                        ]),
+                      ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          IconButton(onPressed: () => c.seekTo(c.value.position - const Duration(seconds: 10)), icon: const Icon(Icons.replay_10, color: Colors.white)),
-                          IconButton(onPressed: () => setState(() => c.value.isPlaying ? c.pause() : c.play()), icon: Icon(c.value.isPlaying ? Icons.pause_circle : Icons.play_circle, color: AppColors.gold, size: 38)),
-                          IconButton(onPressed: () => c.seekTo(c.value.position + const Duration(seconds: 10)), icon: const Icon(Icons.forward_10, color: Colors.white)),
+                          IconButton(tooltip: 'رجوع 30 ثانية', onPressed: () => _skip(c, -30), icon: const Icon(Icons.fast_rewind, color: Colors.white)),
+                          IconButton(tooltip: 'رجوع 10 ثوانٍ', onPressed: () => _skip(c, -10), icon: const Icon(Icons.replay_10, color: Colors.white)),
+                          IconButton(onPressed: () => setState(() => c.value.isPlaying ? c.pause() : c.play()), icon: Icon(c.value.isPlaying ? Icons.pause_circle : Icons.play_circle, color: AppColors.gold, size: 42)),
+                          IconButton(tooltip: 'تقديم 10 ثوانٍ', onPressed: () => _skip(c, 10), icon: const Icon(Icons.forward_10, color: Colors.white)),
+                          IconButton(tooltip: 'تقديم 30 ثانية', onPressed: () => _skip(c, 30), icon: const Icon(Icons.fast_forward, color: Colors.white)),
                         ],
                       ),
+                      TextButton(
+                        onPressed: () {
+                          const speeds = [0.75, 1.0, 1.25, 1.5, 2.0];
+                          _speed = speeds[(speeds.indexOf(_speed) + 1) % speeds.length];
+                          c.setPlaybackSpeed(_speed);
+                          setState(() {});
+                        },
+                        child: Text('السرعة ${_speed}x', style: const TextStyle(color: Colors.white70)),
+                      ),
                     ],
-                  ),
+                  )),
       ),
     );
   }

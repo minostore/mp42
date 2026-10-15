@@ -185,7 +185,9 @@ class HttpsCallable {
         functionName: name,
       );
       // الأخطاء التقنية (لها سبب/حل) تظهر فورًا؛ أخطاء المنطق العادية يعرضها المستدعي
-      if (cause != null || fix != null) onTechnicalError?.call(ex);
+      // «unauthenticated» بدون مستخدم مسجّل (مثل لحظة تسجيل الخروج) ليس عطلًا: لا نعرضه
+      final loggedOutNoise = code == 'unauthenticated' && FirebaseAuth.instance.currentUser == null;
+      if (!loggedOutNoise && (cause != null || fix != null)) onTechnicalError?.call(ex);
       throw ex;
     }
 

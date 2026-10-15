@@ -90,6 +90,13 @@ class GroupsService {
 
   /// دخول جلسة مباشرة داخل التطبيق (Agora RTC). المُفهم صاحب المجموعة moderator.
   /// يرجع true لو كان المستخدم moderator والجلسة مسجلة (تنبيه فقط — تسجيل Agora يحتاج إعدادًا منفصلًا).
+  /// إنهاء الاجتماع للجميع: يُحذف من المجموعة ويُخرَج كل المتصلين (يتحقق الخادم من صلاحية المدير).
+  Future<void> endSession(String groupId, String sessionId) async {
+    await FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('endGroupSession')
+        .call<Map<String, dynamic>>({'groupId': groupId, 'sessionId': sessionId});
+  }
+
   Future<bool> joinSession({
     required BuildContext context,
     required String groupId,
@@ -119,6 +126,9 @@ class GroupsService {
           uid: agoraUid,
           displayName: displayName,
           moderator: moderator,
+          groupId: groupId,
+          sessionId: sessionId,
+          onEndForAll: moderator ? () => endSession(groupId, sessionId) : null,
         ),
       ),
     );

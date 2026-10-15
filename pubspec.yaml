@@ -12,7 +12,6 @@ dependencies:
 
   flutter_localizations:
     sdk: flutter
-  cupertino_icons: ^1.0.8
 
   # Firebase versions are PINNED (no ^) to one coherent FlutterFire release.
   # Floating versions caused "channel-error" on Firebase startup because
@@ -29,7 +28,6 @@ dependencies:
   video_player: ^2.9.2
   google_fonts: ^6.2.1
   cached_network_image: ^3.4.1
-  provider: ^6.1.2
   intl: ^0.19.0
   package_info_plus: ^8.0.2
   http: ^1.2.2
@@ -40,7 +38,6 @@ dependencies:
   permission_handler: ^11.3.1
   firebase_messaging: 15.1.5
   flutter_local_notifications: 17.2.3
-  camera: 0.11.0+2
   file_picker: ^8.1.2   # اختيار PDF/صورة لمشاركتها في الميتنج
   device_info_plus: ^10.1.2   # معمارية الجهاز لاختيار APK المناسب
   ota_update: ^6.0.0          # تنزيل وتثبيت تحديث الـ APK مع نسبة التقدم

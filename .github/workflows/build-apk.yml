@@ -116,7 +116,9 @@ jobs:
           # إعادة المحاولة عند أخطاء الشبكة المؤقتة أثناء تنزيل التبعيات
           for i in 1 2 3 4; do
             echo "=== Build attempt $i ==="
-            if flutter build apk --release --no-shrink \
+            if flutter build apk --release --no-shrink --split-per-abi \
+                 --target-platform android-arm,android-arm64 \
+                 --obfuscate --split-debug-info=build/symbols \
                  --build-number "${{ github.run_number }}" \
                  --build-name "1.0.${{ github.run_number }}"; then
               exit 0
@@ -129,13 +131,16 @@ jobs:
       - name: Verify APK
         run: |
           ls -lh build/app/outputs/flutter-apk/
-          test -f build/app/outputs/flutter-apk/app-release.apk
+          test -f build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          test -f build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: fahmani-release-apk-${{ github.run_number }}
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: |
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -144,4 +149,6 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: Fahmani 1.0.${{ github.run_number }}
           generate_release_notes: true
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: |
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk

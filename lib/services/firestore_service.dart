@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 import 'api_functions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -268,6 +269,8 @@ class FirestoreService {
   }
 
   Future<List<String>> _myIdsFromFunction(String uid) async {
+    // بعد تسجيل الخروج لا توجد جلسة: لا نستدعي السيرفر أصلًا (يمنع خطأ «لازم تسجل الدخول أولاً»)
+    if (FirebaseAuth.instance.currentUser == null) return <String>[];
     try {
       final result = await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('getMyPurchasedCourseIds').call<Map<String, dynamic>>();
       return (result.data['courseIds'] as List? ?? const []).map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
