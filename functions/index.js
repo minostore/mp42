@@ -111,6 +111,46 @@ exports.createR2UploadUrl = onCall({ secrets: R2_SECRETS }, async (request) => {
   return { ...signed, key, token: kind === 'cover' ? `r2cover:${courseId}:${key}` : `r2:${courseId}:${lessonNumber}:${key}` };
 });
 
+
+/**
+ * رفع وسائط عامة إلى R2 (بدون Firebase Storage): صورة الحساب (قيد المراجعة)، أعمال المفهمين، ملفات الجلسات.
+ * data: { kind: 'profile'|'portfolio'|'meeting', fileName, contentType, size, channel? }
+ * يرجّع { url (PUT مؤقت), key, publicUrl }.
+ */
+exports.createMediaUploadUrl = onCall({ secrets: R2_SECRETS }, async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'لازم تسجل الدخول أولاً');
+  const data = request.data || {};
+  const kind = String(data.kind || '');
+  const contentType = String(data.contentType || 'application/octet-stream');
+  const size = Number(data.size || 0);
+  const safe = String(data.fileName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120) || 'file';
+  const stamp = `${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+  let key;
+  if (kind === 'profile') {
+    if (!contentType.startsWith('image/')) throw new HttpsError('invalid-argument', 'الصورة يجب أن تكون ملف صورة');
+    if (size > 5 * 1024 * 1024) throw new HttpsError('invalid-argument', 'الحد الأقصى لحجم الصورة 5 ميجا');
+    key = `pending/profiles/${uid}/${stamp}.jpg`;
+  } else if (kind === 'portfolio') {
+    const me = (await db.collection('users').doc(uid).get()).data() || {};
+    const ok = me.role === 'mufhem' || me.mode === 'mofahhem' || me.isAdmin === true || me.role === 'admin';
+    if (!ok) throw new HttpsError('permission-denied', 'إضافة الأعمال للمُفهّمين فقط');
+    if (!(contentType.startsWith('video/') || contentType.startsWith('image/'))) throw new HttpsError('invalid-argument', 'نوع الملف غير مدعوم');
+    if (size > 2 * 1024 * 1024 * 1024) throw new HttpsError('invalid-argument', 'الحد الأقصى للملف 2 جيجا');
+    key = `portfolio/${uid}/${stamp}_${safe}`;
+  } else if (kind === 'meeting') {
+    if (!(contentType === 'application/pdf' || contentType.startsWith('image/'))) throw new HttpsError('invalid-argument', 'المسموح PDF أو صور فقط');
+    if (size > 30 * 1024 * 1024) throw new HttpsError('invalid-argument', 'الحد الأقصى للملف 30 ميجا');
+    const channel = String(data.channel || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
+    if (!channel) throw new HttpsError('invalid-argument', 'الجلسة غير محددة');
+    key = `meeting/${channel}/${stamp}_${safe}`;
+  } else {
+    throw new HttpsError('invalid-argument', 'نوع الرفع غير صحيح');
+  }
+  const signed = presignedUrl({ method: 'PUT', key, expiresSeconds: 900, contentType });
+  return { ...signed, key, publicUrl: `${R2_PUBLIC_BASE}/${key}` };
+});
+
 /** Resolve an R2 media token into a short-lived GET URL. */
 exports.getR2MediaUrl = onCall({ secrets: R2_SECRETS }, async (request) => {
   const token = String(request.data?.token || '').trim();

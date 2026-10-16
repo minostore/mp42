@@ -1,11 +1,11 @@
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/user_profile.dart';
 import '../services/firestore_service.dart';
+import '../services/media_upload.dart';
 import '../theme/app_theme.dart';
 import '../widgets/user_avatar.dart';
 
@@ -51,9 +51,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       await FirestoreService().updateUserProfile(uid: user.uid, name: name);
       if (_picked != null) {
         // الصورة لا تُنشر مباشرة: تُحفظ كطلب مراجعة، وتبقى الصورة الحالية/الافتراضية حتى تقبلها الإدارة
-        final ref = FirebaseStorage.instance.ref('pending/profiles/${user.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg');
-        await ref.putFile(File(_picked!.path), SettableMetadata(contentType: 'image/jpeg'));
-        final pendingUrl = await ref.getDownloadURL();
+        final pendingUrl = await MediaUpload.uploadFile(kind: 'profile', file: File(_picked!.path), fileName: 'profile.jpg', contentType: 'image/jpeg');
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
           'pendingProfilePictureUrl': pendingUrl,
           'profilePicturePending': true,

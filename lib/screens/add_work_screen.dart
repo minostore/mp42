@@ -3,11 +3,11 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../data/categories_tree.dart';
+import '../services/media_upload.dart';
 import '../widgets/category_picker.dart';
 
 /// إضافة عمل جديد إلى «أعمال المفهمين» (فيديو + صورة مصغّرة + قسم). يُنشر بعد اعتماد الإدارة.
@@ -54,23 +54,21 @@ class _AddWorkScreenState extends State<AddWorkScreen> {
       _progress = 0;
     });
     try {
-      final ts = DateTime.now().millisecondsSinceEpoch;
-      final vRef = FirebaseStorage.instance.ref('portfolio/${user.uid}/v_$ts');
-      final task = vRef.putFile(_video!, SettableMetadata(contentType: _videoName.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4'));
-      task.snapshotEvents.listen((s) {
-        if (s.totalBytes > 0 && mounted) setState(() => _progress = s.bytesTransferred / s.totalBytes);
-      });
-      await task;
-      final tRef = FirebaseStorage.instance.ref('portfolio/${user.uid}/t_$ts');
-      await tRef.putFile(_thumb!, SettableMetadata(contentType: 'image/jpeg'));
+      final videoType = _videoName.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4';
+      final thumbType = _thumbName.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+      final videoUrl = await MediaUpload.uploadFile(
+        kind: 'portfolio', file: _video!, fileName: _videoName, contentType: videoType,
+        onProgress: (p) { if (mounted) setState(() => _progress = p); },
+      );
+      final thumbUrl = await MediaUpload.uploadFile(kind: 'portfolio', file: _thumb!, fileName: _thumbName, contentType: thumbType);
       await FirebaseFirestore.instance.collection('portfolio').add({
         'mufhemId': user.uid,
         'mufhemName': user.displayName ?? '',
         'title': _title.text.trim(),
         'description': _desc.text.trim(),
         ..._choice.toFields(),
-        'mediaUrl': await vRef.getDownloadURL(),
-        'thumbnailUrl': await tRef.getDownloadURL(),
+        'mediaUrl': videoUrl,
+        'thumbnailUrl': thumbUrl,
         'mediaType': 'video',
         'status': 'pending_approval',
         'createdAt': DateTime.now().toIso8601String(),
