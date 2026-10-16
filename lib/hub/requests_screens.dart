@@ -3,7 +3,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../data/categories_tree.dart';
+import '../services/gender_rules.dart';
 import '../theme/app_theme.dart';
+import '../widgets/category_picker.dart';
+import '../widgets/user_avatar.dart';
 import 'hub_common.dart';
 
 CollectionReference<Map<String, dynamic>> get _istifhams => FirebaseFirestore.instance.collection('istifhams');
@@ -18,6 +22,7 @@ class BrowseRequestsScreen extends StatefulWidget {
 
 class _BrowseRequestsScreenState extends State<BrowseRequestsScreen> {
   String _q = '';
+  CategoryChoice _cat = const CategoryChoice();
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +41,7 @@ class _BrowseRequestsScreenState extends State<BrowseRequestsScreen> {
             decoration: const InputDecoration(hintText: 'ابحث في الاستفهامات...', prefixIcon: Icon(Icons.search)),
           ),
         ),
+        CategoryFilterButton(value: _cat, onChanged: (c) => setState(() => _cat = c)),
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _istifhams.where('status', isEqualTo: 'active').limit(100).snapshots(),
@@ -43,9 +49,10 @@ class _BrowseRequestsScreenState extends State<BrowseRequestsScreen> {
               if (snap.hasError) return EmptyHint(icon: Icons.error_outline, text: 'تعذر تحميل الاستفهامات\n${snap.error}');
               if (!snap.hasData) return const Center(child: CircularProgressIndicator());
               final docs = snap.data!.docs.where((d) {
-                if (_q.isEmpty) return true;
                 final m = d.data();
-                return '${m['title']} ${m['description']} ${m['category']}'.contains(_q);
+                if (!_cat.matches(m)) return false;
+                if (_q.isEmpty) return true;
+                return '${m['title']} ${m['description']} ${m['category']} ${m['categorySub']} ${m['categoryOpt']} ${m['categoryCustom']}'.contains(_q);
               }).toList()
                 ..sort((a, b) => (parseDate(b['createdAt']) ?? DateTime(2000)).compareTo(parseDate(a['createdAt']) ?? DateTime(2000)));
               if (docs.isEmpty) return const EmptyHint(icon: Icons.help_outline, text: 'لا توجد استفهامات مفتوحة حاليًا');
@@ -90,7 +97,7 @@ class RequestCard extends StatelessWidget {
             Wrap(spacing: 14, runSpacing: 4, children: [
               _meta(Icons.person_outline, who.toString()),
               _meta(Icons.access_time, 'منذ ${timeAgo(data['createdAt'])}'),
-              if ((data['category'] ?? '').toString().isNotEmpty) _meta(Icons.category_outlined, data['category'].toString()),
+              if ((data['category'] ?? '').toString().isNotEmpty) _meta(Icons.category_outlined, CategoryChoice.fromMap(data).leaf),
             ]),
           ]),
         ),
@@ -208,7 +215,7 @@ class RequestDetailScreen extends StatelessWidget {
                   return ListView(padding: const EdgeInsets.all(16), children: [
                     Row(children: [
                       if ((r['category'] ?? '').toString().isNotEmpty)
-                        Chip(label: Text(r['category'].toString()), backgroundColor: AppColors.primaryLight),
+                        Flexible(child: Chip(label: Text(CategoryChoice.fromMap(r).label, overflow: TextOverflow.ellipsis), backgroundColor: AppColors.primaryLight)),
                       const Spacer(),
                       StatusChip(status),
                     ]),
@@ -221,11 +228,25 @@ class RequestDetailScreen extends StatelessWidget {
                     if (r['meetingTime'] != null) _section('الموعد المقترح', Icons.event, prettyDateTime(r['meetingTime'])),
                     const SizedBox(height: 8),
                     // المفهم: تقديم عرض
-                    if (!isOwner && isMufhem && status == 'active')
-                      ElevatedButton.icon(
-                        onPressed: () => context.push('/requests/$requestId/offer'),
-                        icon: const Icon(Icons.bolt),
-                        label: Text(mine == null ? 'قدّم عرضك الآن' : 'تعديل عرضي'),
+                    if (!isOwner && isMufhem && status == 'active' && uid != null)
+                      FutureBuilder<String?>(
+                        future: GenderRules.offerBlockReason(mufhemUid: uid, mustafhemUid: (r['mustafhemId'] ?? '').toString()),
+                        builder: (context, g) {
+                          if (g.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+                          final reason = g.data;
+                          if (reason != null) {
+                            return Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(12)),
+                              child: Text(reason, style: const TextStyle(color: Color(0xFFB91C1C), fontWeight: FontWeight.w700, height: 1.6)),
+                            );
+                          }
+                          return ElevatedButton.icon(
+                            onPressed: () => context.push('/requests/$requestId/offer'),
+                            icon: const Icon(Icons.bolt),
+                            label: Text(mine == null ? 'قدّم عرضك الآن' : 'تعديل عرضي'),
+                          );
+                        },
                       ),
                     if (mine != null && !isOwner)
                       Card(
@@ -289,7 +310,7 @@ class RequestDetailScreen extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            CircleAvatar(backgroundImage: avatar.isEmpty ? null : NetworkImage(avatar), child: avatar.isEmpty ? Text(((o['mufhemName'] ?? '').toString().isEmpty ? '؟' : o['mufhemName'].toString()).substring(0, 1)) : null),
+            (o['mufhemId'] ?? '').toString().isEmpty ? UserAvatar(photoUrl: avatar) : UserAvatar.fromUid(o['mufhemId'].toString()),
             const SizedBox(width: 10),
             Expanded(child: InkWell(onTap: () => context.push('/mufhems/${o['mufhemId']}'), child: Text((o['mufhemName'] ?? '').toString(), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)))),
           ]),
@@ -352,6 +373,15 @@ class _MakeOfferScreenState extends State<MakeOfferScreen> {
     }
     setState(() => _saving = true);
     try {
+      final reqSnap = await _istifhams.doc(widget.requestId).get();
+      final reason = await GenderRules.offerBlockReason(
+        mufhemUid: user.uid,
+        mustafhemUid: (reqSnap.data()?['mustafhemId'] ?? '').toString(),
+      );
+      if (reason != null) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reason)));
+        return;
+      }
       final col = _istifhams.doc(widget.requestId).collection('offers');
       final base = {'readyAt': webDateTime(_readyAt!), 'details': _details.text.trim()};
       if (_existingId != null) {
@@ -360,7 +390,7 @@ class _MakeOfferScreenState extends State<MakeOfferScreen> {
         await col.add({
           'mufhemId': user.uid,
           'mufhemName': user.displayName ?? 'مفهم',
-          'mufhemAvatar': user.photoURL ?? '',
+          'mufhemAvatar': '',
           'amount': 0, // الفترة المجانية: دائمًا صفر
           ...base,
           'status': 'pending',
@@ -390,7 +420,7 @@ class _MakeOfferScreenState extends State<MakeOfferScreen> {
                   final r = s.data?.data();
                   if (r == null) return const SizedBox.shrink();
                   return Card(
-                    color: AppColors.ink,
+                    color: AppColors.primaryDark,
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -435,14 +465,14 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
   final _title = TextEditingController();
   final _desc = TextEditingController();
   final _goal = TextEditingController();
-  String _cat = '', _sub = '', _opt = '';
+  CategoryChoice _choice = const CategoryChoice();
   DateTime? _when;
   bool _saving = false;
 
   Future<void> _submit() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    if (_title.text.trim().isEmpty || _desc.text.trim().isEmpty || _goal.text.trim().isEmpty || _cat.isEmpty || _when == null) {
+    if (_title.text.trim().isEmpty || _desc.text.trim().isEmpty || _goal.text.trim().isEmpty || _choice.isEmpty || (isOtherNode(_choice.main, _choice.sub, _choice.opt) && _choice.custom.isEmpty) || _when == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('يرجى تعبئة كافة الحقول المطلوبة')));
       return;
     }
@@ -452,9 +482,7 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
         'title': _title.text.trim(),
         'description': _desc.text.trim(),
         'goal': _goal.text.trim(),
-        'category': _cat,
-        'categorySub': _sub,
-        'categoryOpt': _opt,
+        ..._choice.toFields(),
         'meetingTime': webDateTime(_when!),
         'originalAmount': 0,
         'amount': 0,
@@ -478,57 +506,27 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('طرح استفهام جديد')),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance.collection('categories').orderBy('name').snapshots(),
-        builder: (context, snap) {
-          final cats = snap.data?.docs.map((d) => {...d.data(), 'id': d.id}).toList() ?? [];
-          final mains = cats.where((c) => c['type'] == 'main' || c['type'] == null).toList();
-          String? idOf(String name) {
-            for (final c in cats) {
-              if (c['name'] == name) return c['id'] as String;
-            }
-            return null;
-          }
-          final subs = cats.where((c) => c['type'] == 'sub' && c['parentId'] == idOf(_cat)).toList();
-          final opts = cats.where((c) => c['type'] == 'option' && c['parentId'] == idOf(_sub)).toList();
-
-          Widget dropdown(String label, String value, List<Map<String, dynamic>> items, void Function(String) onPick) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: DropdownButtonFormField<String>(
-                value: items.any((c) => c['name'] == value) ? value : null,
-                decoration: InputDecoration(labelText: label),
-                items: [for (final c in items) DropdownMenuItem(value: c['name'].toString(), child: Text(c['name'].toString()))],
-                onChanged: (v) => onPick(v ?? ''),
-              ),
-            );
-          }
-
-          return ListView(padding: const EdgeInsets.all(16), children: [
-            TextField(controller: _title, decoration: const InputDecoration(labelText: 'عنوان الاستفهام')),
-            const SizedBox(height: 12),
-            TextField(controller: _desc, maxLines: 5, decoration: const InputDecoration(labelText: 'تفاصيل الاستفهام')),
-            const SizedBox(height: 12),
-            TextField(controller: _goal, maxLines: 3, decoration: const InputDecoration(labelText: 'الهدف المرجو تحقيقه')),
-            const SizedBox(height: 12),
-            dropdown('القسم', _cat, mains, (v) => setState(() { _cat = v; _sub = ''; _opt = ''; })),
-            if (subs.isNotEmpty) dropdown('القسم الفرعي', _sub, subs, (v) => setState(() { _sub = v; _opt = ''; })),
-            if (opts.isNotEmpty) dropdown('التخصص', _opt, opts, (v) => setState(() => _opt = v)),
-            const Text('الموعد المقترح للمحاضرة', style: TextStyle(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 6),
-            OutlinedButton.icon(
-              onPressed: () async {
-                final d = await pickDateTime(context);
-                if (d != null) setState(() => _when = d);
-              },
-              icon: const Icon(Icons.event),
-              label: Text(_when == null ? 'اختر التاريخ والوقت' : prettyDateTime(_when!.toIso8601String())),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(onPressed: _saving ? null : _submit, child: Text(_saving ? 'جارٍ الإرسال...' : 'نشر الاستفهام')),
-          ]);
-        },
-      ),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        TextField(controller: _title, decoration: const InputDecoration(labelText: 'عنوان الاستفهام')),
+        const SizedBox(height: 12),
+        TextField(controller: _desc, maxLines: 5, decoration: const InputDecoration(labelText: 'تفاصيل الاستفهام')),
+        const SizedBox(height: 12),
+        TextField(controller: _goal, maxLines: 3, decoration: const InputDecoration(labelText: 'الهدف المرجو تحقيقه')),
+        const SizedBox(height: 12),
+        CategoryPicker(value: _choice, onChanged: (c) => setState(() => _choice = c)),
+        const Text('الموعد المقترح للمحاضرة', style: TextStyle(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 6),
+        OutlinedButton.icon(
+          onPressed: () async {
+            final d = await pickDateTime(context);
+            if (d != null) setState(() => _when = d);
+          },
+          icon: const Icon(Icons.event),
+          label: Text(_when == null ? 'اختر التاريخ والوقت' : prettyDateTime(_when!.toIso8601String())),
+        ),
+        const SizedBox(height: 20),
+        ElevatedButton(onPressed: _saving ? null : _submit, child: Text(_saving ? 'جارٍ الإرسال...' : 'نشر الاستفهام')),
+      ]),
     );
   }
 }

@@ -13,6 +13,7 @@ class Course {
   final int lessonsCount;
   final String durationLabel;
   final List<String> features;
+  final Map<String, dynamic> raw;
 
   Course({
     required this.id,
@@ -28,6 +29,7 @@ class Course {
     required this.lessonsCount,
     required this.durationLabel,
     required this.features,
+    this.raw = const {},
   });
 
   static int _toInt(dynamic value) {
@@ -83,6 +85,7 @@ class Course {
           (map['durationLabel'] ?? map['duration'] ?? '').toString(),
 
       features: features,
+      raw: map,
     );
   }
 }

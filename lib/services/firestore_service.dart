@@ -183,7 +183,7 @@ class FirestoreService {
     String? mode,
   }) async {
     final data = <String, dynamic>{
-      if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      if (name != null && name.trim().isNotEmpty) ...{'name': name.trim(), 'fullName': name.trim()},
       if (photoUrl != null) 'photoUrl': photoUrl,
       if (mode != null && (mode == 'mofahhem' || mode == 'mostafhem')) 'mode': mode,
       'updatedAt': FieldValue.serverTimestamp(),

@@ -1,10 +1,14 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
 
+import '../data/categories_tree.dart';
 import '../theme/app_theme.dart';
+import '../widgets/category_picker.dart';
+import '../widgets/user_avatar.dart';
 import 'hub_common.dart';
 
 final _db = FirebaseFirestore.instance;
@@ -34,14 +38,15 @@ class _MufhemsScreenState extends State<MufhemsScreen> {
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _db.collection('users').where('role', isEqualTo: 'mufhem').where('isProfileApproved', isEqualTo: true).snapshots(),
+            stream: _db.collection('users').where('role', isEqualTo: 'mufhem').snapshots(),
             builder: (context, snap) {
-              if (snap.hasError) return EmptyHint(icon: Icons.error_outline, text: 'تعذر تحميل المفهمين\n${snap.error}');
+              if (snap.hasError) return EmptyHint(icon: Icons.error_outline, text: friendlyError(snap.error));
               if (!snap.hasData) return const Center(child: CircularProgressIndicator());
               final docs = snap.data!.docs.where((d) {
-                if (_q.isEmpty) return true;
                 final m = d.data();
-                return '${m['fullName']} ${m['specialization']}'.contains(_q);
+                if (m['isProfileApproved'] != true) return false;
+                if (_q.isEmpty) return true;
+                return '${m['fullName'] ?? m['name']} ${m['specialization']}'.contains(_q);
               }).toList();
               if (docs.isEmpty) return const EmptyHint(icon: Icons.people_outline, text: 'لا يوجد مفهمون مطابقون');
               return ListView.separated(
@@ -54,7 +59,7 @@ class _MufhemsScreenState extends State<MufhemsScreen> {
                   return Card(
                     child: ListTile(
                       onTap: () => context.push('/mufhems/${docs[i].id}'),
-                      leading: CircleAvatar(radius: 26, backgroundImage: pic.isEmpty ? null : CachedNetworkImageProvider(pic), child: pic.isEmpty ? const Icon(Icons.person) : null),
+                      leading: UserAvatar(photoUrl: pic, gender: (m['gender'] ?? '').toString(), radius: 26),
                       title: Row(children: [
                         Flexible(child: Text((m['fullName'] ?? 'مفهم').toString(), style: const TextStyle(fontWeight: FontWeight.w800))),
                         if (m['isVerified'] == true) const Padding(padding: EdgeInsets.only(right: 4), child: Icon(Icons.verified, size: 16, color: Color(0xFF2563EB))),
@@ -90,7 +95,7 @@ class MufhemProfileScreen extends StatelessWidget {
           if (m == null) return const EmptyHint(icon: Icons.person_off, text: 'الحساب غير موجود');
           final pic = (m['profilePictureUrl'] ?? '').toString();
           return ListView(padding: const EdgeInsets.all(16), children: [
-            Center(child: CircleAvatar(radius: 48, backgroundImage: pic.isEmpty ? null : CachedNetworkImageProvider(pic), child: pic.isEmpty ? const Icon(Icons.person, size: 40) : null)),
+            Center(child: UserAvatar(photoUrl: pic, gender: (m['gender'] ?? '').toString(), radius: 48)),
             const SizedBox(height: 10),
             Center(
               child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -134,31 +139,24 @@ class PortfolioScreen extends StatefulWidget {
 }
 
 class _PortfolioScreenState extends State<PortfolioScreen> {
-  String _cat = '';
+  CategoryChoice _cat = const CategoryChoice();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: widget.embedded ? null : AppBar(title: const Text('أعمال المفهمين')),
+      floatingActionButton: const _AddWorkFab(),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: _db.collection('portfolio').where('status', isEqualTo: 'approved').snapshots(),
         builder: (context, snap) {
-          if (snap.hasError) return EmptyHint(icon: Icons.error_outline, text: 'تعذر تحميل الأعمال\n${snap.error}');
+          if (snap.hasError) return EmptyHint(icon: Icons.error_outline, text: friendlyError(snap.error));
           if (!snap.hasData) return const Center(child: CircularProgressIndicator());
           final all = snap.data!.docs.toList()
             ..sort((a, b) => (parseDate(b['createdAt']) ?? DateTime(2000)).compareTo(parseDate(a['createdAt']) ?? DateTime(2000)));
-          final cats = <String>{for (final d in all) if ((d['category'] ?? '').toString().isNotEmpty) d['category'].toString()}.toList();
-          final shown = _cat.isEmpty ? all : all.where((d) => d['category'] == _cat).toList();
+          final shown = all.where((d) => _cat.matches(d.data())).toList();
           return Column(children: [
-            if (cats.isNotEmpty)
-              SizedBox(
-                height: 52,
-                child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), children: [
-                  Padding(padding: const EdgeInsets.only(left: 6), child: ChoiceChip(label: const Text('الكل'), selected: _cat.isEmpty, onSelected: (_) => setState(() => _cat = ''))),
-                  for (final c in cats)
-                    Padding(padding: const EdgeInsets.only(left: 6), child: ChoiceChip(label: Text(c), selected: _cat == c, onSelected: (_) => setState(() => _cat = c))),
-                ]),
-              ),
+            const SizedBox(height: 8),
+            CategoryFilterButton(value: _cat, onChanged: (c) => setState(() => _cat = c)),
             Expanded(
               child: shown.isEmpty
                   ? const EmptyHint(icon: Icons.video_library_outlined, text: 'لا توجد أعمال منشورة حاليًا')
@@ -202,7 +200,7 @@ class _WorksGrid extends StatelessWidget {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text((w['title'] ?? '').toString(), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800)),
                   const SizedBox(height: 2),
-                  Text((w['category'] ?? '').toString(), style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+                  Text(CategoryChoice.fromMap(w).label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: AppColors.muted)),
                 ]),
               ),
             ]),
@@ -275,7 +273,7 @@ class _PortfolioDetailScreenState extends State<PortfolioDetailScreen> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text((w['title'] ?? '').toString(), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 6),
-                if ((w['category'] ?? '').toString().isNotEmpty) Chip(label: Text(w['category'].toString()), backgroundColor: AppColors.primaryLight),
+                if ((w['category'] ?? '').toString().isNotEmpty) Chip(label: Text(CategoryChoice.fromMap(w).label), backgroundColor: AppColors.primaryLight),
                 const SizedBox(height: 8),
                 Text((w['description'] ?? '').toString(), style: const TextStyle(height: 1.7)),
                 const SizedBox(height: 16),
@@ -289,7 +287,7 @@ class _PortfolioDetailScreenState extends State<PortfolioDetailScreen> {
                       return Card(
                         child: ListTile(
                           onTap: () => context.push('/mufhems/${w['mufhemId']}'),
-                          leading: CircleAvatar(backgroundImage: pic.isEmpty ? null : CachedNetworkImageProvider(pic), child: pic.isEmpty ? const Icon(Icons.person) : null),
+                          leading: UserAvatar(photoUrl: pic, gender: (m['gender'] ?? '').toString(), radius: 20),
                           title: Text((m['fullName'] ?? 'مفهم').toString(), style: const TextStyle(fontWeight: FontWeight.w800)),
                           subtitle: const Text('عرض ملف المفهم'),
                           trailing: const Icon(Icons.chevron_left),
@@ -302,6 +300,29 @@ class _PortfolioDetailScreenState extends State<PortfolioDetailScreen> {
           ]);
         },
       ),
+    );
+  }
+}
+
+
+/// زر «إضافة عمل» — للمُفهّم فقط.
+class _AddWorkFab extends StatelessWidget {
+  const _AddWorkFab();
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return const SizedBox.shrink();
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+      builder: (context, s) {
+        final m = s.data?.data() ?? const <String, dynamic>{};
+        if (m['role'] != 'mufhem' && m['mode'] != 'mofahhem') return const SizedBox.shrink();
+        return FloatingActionButton.extended(
+          onPressed: () => context.push('/portfolio/new'),
+          icon: const Icon(Icons.add),
+          label: const Text('إضافة عمل'),
+        );
+      },
     );
   }
 }

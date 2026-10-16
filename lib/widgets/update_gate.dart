@@ -36,7 +36,7 @@ class _UpdateGateState extends State<UpdateGate> with WidgetsBindingObserver {
   // لو رجع المستخدم للتطبيق من الخلفية (مثلًا بعد إلغاء التثبيت) نفحص مرة أخرى للإجباري
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && (_update?.mandatory ?? true)) _check();
+    if (state == AppLifecycleState.resumed) _check();
   }
 
   Future<void> _check() async {
@@ -52,9 +52,14 @@ class _UpdateGateState extends State<UpdateGate> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final u = _update;
-    if (u != null && (u.mandatory || !_skipped)) {
-      return AppUpdateScreen(update: u, onSkip: () => setState(() => _skipped = true));
-    }
-    return widget.child;
+    final show = u != null && (u.mandatory || !_skipped);
+    // التطبيق يبقى حيًا خلف الشاشة (لا تضيع حالة التنقل عند «تخطي»)، وشاشة التحديث تغطي الشاشة بالكامل
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Offstage(offstage: show, child: TickerMode(enabled: !show, child: widget.child)),
+        if (show) Positioned.fill(child: AppUpdateScreen(update: u, onSkip: () => setState(() => _skipped = true))),
+      ],
+    );
   }
 }

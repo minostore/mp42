@@ -128,3 +128,17 @@ Future<DateTime?> pickDateTime(BuildContext context) async {
   if (time == null) return null;
   return DateTime(date.year, date.month, date.day, time.hour, time.minute);
 }
+
+
+/// رسالة خطأ مفهومة لأخطاء Firestore الشائعة (بدل عرض الخطأ الخام).
+String friendlyError(Object? e) {
+  final t = e.toString();
+  if (t.contains('permission-denied')) {
+    return 'لا توجد صلاحية قراءة لهذه البيانات.\nتأكد من نشر ملف firestore.rules المحدّث على Firebase.';
+  }
+  if (t.contains('failed-precondition') || t.contains('index')) {
+    return 'هذا الاستعلام يحتاج فهرسًا (Index) في Firestore.\nافتح رابط إنشاء الفهرس الظاهر في سجل الخطأ.';
+  }
+  if (t.contains('unavailable') || t.contains('network')) return 'تعذر الاتصال بالإنترنت، حاول مرة أخرى.';
+  return 'حدث خطأ غير متوقع.\n$t';
+}

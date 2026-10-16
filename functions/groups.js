@@ -158,6 +158,8 @@ exports.createGroup = onCall(async (request) => {
   await ref.set({
     name, description, ownerUid: uid, ownerName: String(me.name || me.fullName || ''),
     status: 'active', memberCount: 0, storageBytes: 0, contentCount: 0,
+    category: String(request.data?.category || '').slice(0, 80), categorySub: String(request.data?.categorySub || '').slice(0, 80),
+    categoryOpt: String(request.data?.categoryOpt || '').slice(0, 80), categoryCustom: String(request.data?.categoryCustom || '').slice(0, 80),
     createdAt: FV.serverTimestamp(),
   });
   return { ok: true, groupId: ref.id };

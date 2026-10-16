@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'api_functions.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -45,14 +46,14 @@ class AppUpdateService {
           .orderBy('versionCode', descending: true)
           .limit(15)
           .get();
-      final newer = snap.docs
-          .where((d) => (d.data()['active'] ?? true) == true)
-          .where((d) => ((d.data()['versionCode'] ?? 0) as num).toInt() > current)
-          .toList();
+      // رقم الإصدار قد يُخزَّن كنص أو رقم من لوحة التحكم — نقبل الاثنين بدل أن يفشل الفحص بصمت
+      int codeOf(Map<String, dynamic> m) => int.tryParse((m['versionCode'] ?? '0').toString().trim()) ?? 0;
+      bool isActive(Map<String, dynamic> m) => m['active'] != false && m['active']?.toString() != 'false';
+      final newer = snap.docs.where((d) => isActive(d.data())).where((d) => codeOf(d.data()) > current).toList();
       if (newer.isEmpty) return null;
       final top = newer.first.data();
       // حجم النسخة المناسبة لمعمارية هذا الجهاز (لو الأدمن رفع نسخة لكل معمارية)
-      var size = ((top['apkSize'] ?? 0) as num).toInt();
+      var size = int.tryParse((top['apkSize'] ?? '0').toString()) ?? 0;
       final apks = top['apks'];
       if (apks is Map) {
         for (final abi in [...await _abis(), 'universal']) {
@@ -64,15 +65,16 @@ class AppUpdateService {
       return AppUpdateInfo(
         id: newer.first.id,
         versionName: (top['versionName'] ?? '').toString(),
-        versionCode: ((top['versionCode'] ?? 0) as num).toInt(),
+        versionCode: codeOf(top),
         title: (top['title'] ?? 'تحديث جديد').toString(),
         description: (top['description'] ?? '').toString(),
         mandatory: anyMandatory,
         apkSize: size,
         imageUrl: (top['imageUrl'] ?? '').toString().trim(),
       );
-    } catch (_) {
-      // فشل الفحص (لا إنترنت…): لا نمنع المستخدم من فتح التطبيق
+    } catch (e) {
+      // فشل الفحص (لا إنترنت…): لا نمنع المستخدم من فتح التطبيق، لكن نسجّل السبب بدل ابتلاعه
+      debugPrint('AppUpdateService.check failed: $e');
       return null;
     }
   }

@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 import '../services/groups_service.dart';
 import '../services/firestore_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../theme/app_theme.dart';
 import '../services/api_functions.dart';
 import '../services/error_center.dart';
+import 'group_manage.dart';
 
 /// داخل المجموعة: الفيديوهات، ملفات PDF، الاختبارات، الجلسات المباشرة والمسجلة. كل شيء يُفتح داخل التطبيق.
 class GroupDetailScreen extends StatelessWidget {
@@ -27,37 +29,73 @@ class GroupDetailScreen extends StatelessWidget {
         if ((g['status'] ?? 'active') != 'active') {
           return Scaffold(appBar: AppBar(title: Text((g['name'] ?? '').toString())), body: const Center(child: Text('المجموعة متوقفة مؤقتًا')));
         }
-        return DefaultTabController(
-          length: 4,
-          child: Scaffold(
-            appBar: AppBar(
-              title: Text((g['name'] ?? 'مجموعة').toString()),
-              bottom: const TabBar(
-                isScrollable: true,
-                tabs: [
-                  Tab(icon: Icon(Icons.play_circle_outline), text: 'الفيديوهات'),
-                  Tab(icon: Icon(Icons.picture_as_pdf_outlined), text: 'ملفات PDF'),
-                  Tab(icon: Icon(Icons.quiz_outlined), text: 'الاختبارات'),
-                  Tab(icon: Icon(Icons.video_camera_front_outlined), text: 'الجلسات'),
-                ],
-              ),
-            ),
-            body: Column(
-              children: [
-                _LiveBanner(groupId: groupId, service: service),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      _ContentList(groupId: groupId, kind: 'videos', icon: Icons.play_circle_fill, empty: 'لا توجد فيديوهات بعد', onOpen: (id, title) => context.push('/group/$groupId/video/$id?title=${Uri.encodeComponent(title)}&kind=videos')),
-                      _ContentList(groupId: groupId, kind: 'files', icon: Icons.picture_as_pdf, empty: 'لا توجد ملفات بعد', onOpen: (id, title) => context.push('/group/$groupId/pdf/$id?title=${Uri.encodeComponent(title)}')),
-                      _ContentList(groupId: groupId, kind: 'quizzes', icon: Icons.quiz, empty: 'لا توجد اختبارات بعد', subtitle: (d) => '${d['questionCount'] ?? 0} سؤال', onOpen: (id, title) => context.push('/group/$groupId/quiz/$id')),
-                      _ContentList(groupId: groupId, kind: 'recordings', icon: Icons.slow_motion_video, empty: 'لا توجد جلسات مسجلة بعد', ready: (d) => d['status'] == 'ready', subtitle: (d) => d['status'] == 'ready' ? _dur(d['durationSec']) : 'جارٍ المعالجة', onOpen: (id, title) => context.push('/group/$groupId/video/$id?title=${Uri.encodeComponent(title)}&kind=recordings')),
+        return GroupRoleBuilder(
+          groupId: groupId,
+          ownerUid: (g['ownerUid'] ?? '').toString(),
+          builder: (context, role) {
+            // «الطلاب» يظهر لصاحب المجموعة فقط (والمحرر الذي عنده صلاحية إضافة طلاب)
+            final showStudents = role.isOwner || role.can('addStudents');
+            return DefaultTabController(
+              length: showStudents ? 5 : 4,
+              child: Scaffold(
+                appBar: AppBar(
+                  title: Text((g['name'] ?? 'مجموعة').toString()),
+                  actions: [
+                    if (role.can('manageSessions'))
+                      TextButton.icon(
+                        onPressed: () => showCreateSessionDialog(context, groupId),
+                        icon: const Icon(Icons.videocam, color: AppColors.accent),
+                        label: const Text('إنشاء جلسة', style: TextStyle(color: AppColors.accent, fontWeight: FontWeight.w800)),
+                      ),
+                  ],
+                  bottom: TabBar(
+                    isScrollable: true,
+                    tabs: [
+                      const Tab(icon: Icon(Icons.play_circle_outline), text: 'الفيديوهات'),
+                      const Tab(icon: Icon(Icons.picture_as_pdf_outlined), text: 'الملفات'),
+                      const Tab(icon: Icon(Icons.quiz_outlined), text: 'الاختبارات'),
+                      const Tab(icon: Icon(Icons.video_camera_front_outlined), text: 'الجلسات المسجلة'),
+                      if (showStudents) const Tab(icon: Icon(Icons.people_alt_outlined), text: 'الطلاب'),
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
+                body: Column(
+                  children: [
+                    _LiveBanner(groupId: groupId, service: service),
+                    Expanded(
+                      child: TabBarView(
+                        children: [
+                          _ContentList(
+                            groupId: groupId, kind: 'videos', icon: Icons.play_circle_fill, empty: 'لا توجد فيديوهات بعد',
+                            header: role.can('uploadVideos') ? _TopButton(Icons.upload, 'رفع فيديو جديد', () => pickAndUploadGroupContent(context, groupId: groupId, kind: 'videos')) : null,
+                            onOpen: (id, title) => context.push('/group/$groupId/video/$id?title=${Uri.encodeComponent(title)}&kind=videos'),
+                          ),
+                          _ContentList(
+                            groupId: groupId, kind: 'files', icon: Icons.picture_as_pdf, empty: 'لا توجد ملفات بعد',
+                            header: role.can('uploadFiles') ? _TopButton(Icons.upload_file, 'رفع PDF جديد', () => pickAndUploadGroupContent(context, groupId: groupId, kind: 'files')) : null,
+                            onOpen: (id, title) => context.push('/group/$groupId/pdf/$id?title=${Uri.encodeComponent(title)}'),
+                          ),
+                          _ContentList(
+                            groupId: groupId, kind: 'quizzes', icon: Icons.quiz, empty: 'لا توجد اختبارات بعد',
+                            header: role.can('createQuizzes') ? _TopButton(Icons.add_task, 'إنشاء اختبار جديد', () => context.push('/group/$groupId/quiz-new')) : null,
+                            subtitle: (d) => '${d['questionCount'] ?? 0} سؤال',
+                            onOpen: (id, title) => context.push('/group/$groupId/quiz/$id'),
+                          ),
+                          _ContentList(
+                            groupId: groupId, kind: 'recordings', icon: Icons.slow_motion_video, empty: 'لا توجد جلسات مسجلة بعد',
+                            ready: (d) => d['status'] == 'ready',
+                            subtitle: (d) => d['status'] == 'ready' ? _dur(d['durationSec']) : 'جارٍ المعالجة',
+                            onOpen: (id, title) => context.push('/group/$groupId/video/$id?title=${Uri.encodeComponent(title)}&kind=recordings'),
+                          ),
+                          if (showStudents) GroupStudentsTab(groupId: groupId, role: role),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         );
       },
     );
@@ -123,7 +161,8 @@ class _ContentList extends StatelessWidget {
   final void Function(String id, String title) onOpen;
   final String Function(Map<String, dynamic>)? subtitle;
   final bool Function(Map<String, dynamic>)? ready;
-  const _ContentList({required this.groupId, required this.kind, required this.icon, required this.empty, required this.onOpen, this.subtitle, this.ready});
+  final Widget? header;
+  const _ContentList({required this.groupId, required this.kind, required this.icon, required this.empty, required this.onOpen, this.subtitle, this.ready, this.header});
 
   @override
   Widget build(BuildContext context) {
@@ -133,29 +172,44 @@ class _ContentList extends StatelessWidget {
         if (snap.hasError) return const Center(child: Text('تعذر تحميل المحتوى'));
         if (!snap.hasData) return const Center(child: CircularProgressIndicator());
         final docs = snap.data!.docs;
-        if (docs.isEmpty) return Center(child: Text(empty));
-        return ListView.separated(
-          padding: const EdgeInsets.all(12),
-          itemCount: docs.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 8),
-          itemBuilder: (context, i) {
-            final d = docs[i].data();
-            final title = (d['title'] ?? 'بدون عنوان').toString();
-            final ok = ready == null ? true : ready!(d);
-            return Card(
-              child: ListTile(
-                leading: Icon(icon, size: 30),
-                title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: subtitle == null ? null : Text(subtitle!(d)),
-                trailing: ok ? const Icon(Icons.chevron_left) : const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                onTap: ok ? () => onOpen(docs[i].id, title) : null,
-              ),
-            );
-          },
-        );
+        final list = docs.isEmpty
+            ? Center(child: Text(empty))
+            : ListView.separated(
+                padding: const EdgeInsets.all(12),
+                itemCount: docs.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, i) {
+                  final d = docs[i].data();
+                  final title = (d['title'] ?? 'بدون عنوان').toString();
+                  final ok = ready == null ? true : ready!(d);
+                  return Card(
+                    child: ListTile(
+                      leading: Icon(icon, size: 30),
+                      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: subtitle == null ? null : Text(subtitle!(d)),
+                      trailing: ok ? const Icon(Icons.chevron_left) : const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                      onTap: ok ? () => onOpen(docs[i].id, title) : null,
+                    ),
+                  );
+                },
+              );
+        if (header == null) return list;
+        return Column(children: [header!, Expanded(child: list)]);
       },
     );
   }
+}
+
+class _TopButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _TopButton(this.icon, this.label, this.onTap);
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+        child: ElevatedButton.icon(onPressed: onTap, icon: Icon(icon), label: Text(label)),
+      );
 }
 
 /// شاشة دخول الاجتماع: تفتح الاجتماع داخل التطبيق مباشرة (من زر المجموعة أو من رابط المنصة fahmny://group/..).

@@ -81,7 +81,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                   SliverAppBar(
                     expandedHeight: 210,
                     pinned: true,
-                    backgroundColor: AppColors.ink,
+                    backgroundColor: AppColors.primaryDark,
                     leading: IconButton(icon: const Icon(Icons.arrow_forward, color: Colors.white), onPressed: () => context.pop()),
                     flexibleSpace: FlexibleSpaceBar(
                       background: CachedNetworkImage(imageUrl: course.thumbnailUrl, fit: BoxFit.cover),

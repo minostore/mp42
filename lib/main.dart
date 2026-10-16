@@ -157,7 +157,7 @@ class _MasarAppState extends State<MasarApp> {
               // recording starts or a screenshot is taken.
               if (_blockContent)
                 Container(
-                  color: AppColors.ink,
+                  color: AppColors.primaryDark,
                   alignment: Alignment.center,
                   child: const Column(
                     mainAxisSize: MainAxisSize.min,

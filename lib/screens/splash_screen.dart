@@ -32,7 +32,7 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.ink,
+      backgroundColor: AppColors.white,
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -40,17 +40,17 @@ class _SplashScreenState extends State<SplashScreen> {
             Container(
               width: 84,
               height: 84,
-              decoration: BoxDecoration(color: AppColors.gold, borderRadius: BorderRadius.circular(24)),
-              child: const Icon(Icons.school_outlined, color: AppColors.ink, size: 40),
+              decoration: BoxDecoration(color: AppColors.paper, borderRadius: BorderRadius.circular(24)),
+              child: Image.asset('assets/images/logo.png', width: 72, height: 72),
             ),
             const SizedBox(height: 18),
             Text('فهمت',
                 style: Theme.of(context)
                     .textTheme
                     .headlineMedium
-                    ?.copyWith(color: AppColors.paper, fontSize: 30)),
+                    ?.copyWith(color: AppColors.primaryDark, fontSize: 30)),
             const SizedBox(height: 6),
-            const Text('تعلّم في أي وقت، من أي مكان', style: TextStyle(color: Color(0xFFA9BAC0), fontSize: 13)),
+            const Text('تعلّم في أي وقت، من أي مكان', style: TextStyle(color: AppColors.muted, fontSize: 13)),
             const SizedBox(height: 26),
             const SizedBox(
               width: 28,

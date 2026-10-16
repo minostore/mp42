@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
 import '../models/user_profile.dart';
 import '../theme/app_theme.dart';
+import '../widgets/user_avatar.dart';
 import 'edit_profile_screen.dart';
 import 'instructor_dashboard_screen.dart';
 
@@ -38,19 +39,11 @@ class AccountTab extends StatelessWidget {
           return ListView(
             children: [
               Container(
-                color: AppColors.ink,
+                color: AppColors.primaryDark,
                 padding: const EdgeInsets.fromLTRB(18, 24, 18, 22),
                 child: Column(
                   children: [
-                    CircleAvatar(
-                      radius: 38,
-                      backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
-                      backgroundColor: AppColors.gold,
-                      child: photoUrl.isEmpty
-                          ? Text(name.isNotEmpty ? name[0] : 'م',
-                              style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w800, fontSize: 25))
-                          : null,
-                    ),
+                    UserAvatar(photoUrl: photoUrl, gender: profile?.gender, radius: 38),
                     const SizedBox(height: 10),
                     Text(name, style: const TextStyle(color: AppColors.paper, fontWeight: FontWeight.w800, fontSize: 17)),
                     Text(email, style: const TextStyle(color: Color(0xFFA9BAC0), fontSize: 12.5)),

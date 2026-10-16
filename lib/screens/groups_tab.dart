@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../services/api_functions.dart';
 import '../services/groups_service.dart';
+import '../data/categories_tree.dart';
 import '../theme/app_theme.dart';
+import '../widgets/category_picker.dart';
 
 /// تبويب «المجموعات»: المجموعات التي أنشأها المُفهم + المجموعات التي انضم لها الطالب (تظهر تلقائيًا من منصة فهمت).
 class GroupsTab extends StatefulWidget {
@@ -17,6 +19,7 @@ class GroupsTab extends StatefulWidget {
 
 class _GroupsTabState extends State<GroupsTab> {
   final _service = GroupsService();
+  CategoryChoice _filter = const CategoryChoice();
   StreamSubscription? _a, _b;
   List<Map<String, dynamic>> _owned = [];
   List<Map<String, dynamic>> _joined = [];
@@ -62,18 +65,25 @@ class _GroupsTabState extends State<GroupsTab> {
   Future<void> _create() async {
     final nameC = TextEditingController();
     final descC = TextEditingController();
+    var choice = const CategoryChoice();
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('إنشاء مجموعة جديدة'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: nameC, maxLength: 80, decoration: const InputDecoration(labelText: 'اسم المجموعة')),
-          TextField(controller: descC, maxLength: 500, maxLines: 2, decoration: const InputDecoration(labelText: 'وصف (اختياري)')),
-        ]),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('إنشاء')),
-        ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          title: const Text('إنشاء مجموعة جديدة'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(controller: nameC, maxLength: 80, decoration: const InputDecoration(labelText: 'اسم المجموعة')),
+              TextField(controller: descC, maxLength: 500, maxLines: 2, decoration: const InputDecoration(labelText: 'وصف (اختياري)')),
+              const SizedBox(height: 8),
+              CategoryPicker(value: choice, onChanged: (c) => setS(() => choice = c)),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('إنشاء')),
+          ],
+        ),
       ),
     );
     if (ok != true) return;
@@ -81,10 +91,14 @@ class _GroupsTabState extends State<GroupsTab> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اسم المجموعة 3 أحرف على الأقل')));
       return;
     }
+    if (choice.isEmpty || (isOtherNode(choice.main, choice.sub, choice.opt) && choice.custom.isEmpty)) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اختر قسم المجموعة')));
+      return;
+    }
     try {
       final r = await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('createGroup')
-          .call<Map<String, dynamic>>({'name': nameC.text.trim(), 'description': descC.text.trim()});
+          .call<Map<String, dynamic>>({'name': nameC.text.trim(), 'description': descC.text.trim(), ...choice.toFields()});
       final id = (r.data['groupId'] ?? '').toString();
       if (mounted && id.isNotEmpty) context.push('/group/$id');
     } catch (e) {
@@ -100,7 +114,8 @@ class _GroupsTabState extends State<GroupsTab> {
     }
   }
 
-  Widget _list(List<Map<String, dynamic>> list, String empty) {
+  Widget _list(List<Map<String, dynamic>> all, String empty) {
+    final list = all.where((g) => _filter.matches(g)).toList();
     if (list.isEmpty) return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(empty, textAlign: TextAlign.center)));
     return ListView.separated(
       padding: const EdgeInsets.all(14),
@@ -169,12 +184,16 @@ class _GroupsTabState extends State<GroupsTab> {
             ? const Center(child: CircularProgressIndicator())
             : _error != null
                 ? Center(child: Text(_error!))
-                : TabBarView(children: [
+                : Column(children: [
+                    const SizedBox(height: 8),
+                    CategoryFilterButton(value: _filter, onChanged: (c) => setState(() => _filter = c)),
+                    Expanded(child: TabBarView(children: [
                     _list(_owned, 'لم تنشئ أي مجموعة بعد.\nاضغط «إنشاء مجموعة جديدة» للبدء.'),
                     Column(children: [
                       _invites(),
                       Expanded(child: _list(_joined, 'لم تنضم لأي مجموعة بعد.\nعندما يدعوك صاحب مجموعة برقمك التعريفي ستظهر الدعوة هنا، وتنضم بعد قبولها.')),
                     ]),
+                  ])),
                   ]),
       ),
     );

@@ -29,6 +29,23 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // ===== قواعد الجنس والصورة الشخصية =====
+    function genderOf(u) {
+      return get(/databases/$(database)/documents/users/$(u)).data.get('gender', '');
+    }
+    // المفهم لا يقدّم عرضًا إلا على استفهام من نفس جنسه (حسابات قديمة بدون جنس غير ممنوعة)
+    function offerGenderOk(requestId) {
+      let me = genderOf(request.auth.uid);
+      let owner = genderOf(get(/databases/$(database)/documents/istifhams/$(requestId)).data.mustafhemId);
+      return me == '' || owner == '' || me == owner;
+    }
+    // المستخدم لا يغيّر صورته المعتمدة بنفسه (تُرفع في pendingPhotoUrl وتعتمدها الإدارة)، ولا يغيّر جنسه بعد تحديده
+    function userSafeUpdate() {
+      return request.resource.data.get('profilePictureUrl', '') == resource.data.get('profilePictureUrl', '')
+        && request.resource.data.get('photoUrl', '') == resource.data.get('photoUrl', '')
+        && (resource.data.get('gender', '') == '' || request.resource.data.get('gender', '') == resource.data.get('gender', ''));
+    }
+
     // السماح للمسؤولين بالوصول الكامل والقراءة والكتابة لكافة السجلات
     match /{document=**} {
       allow read, write: if isAdmin();
@@ -39,7 +56,7 @@ service cloud.firestore {
       allow read: if true;
       // الرقم التعريفي (publicId) يُنشأ من الخادم فقط ولا يمكن للمستخدم تعديله.
       allow create: if isAdmin() || (isOwner(userId) && !('publicId' in request.resource.data));
-      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.get('publicId', null) == resource.data.get('publicId', null));
+      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.get('publicId', null) == resource.data.get('publicId', null) && userSafeUpdate());
       allow delete: if isOwner(userId) || isAdmin();
       match /groupMemberships/{gid} { allow read: if isOwner(userId) || isAdmin(); allow write: if false; }
       match /followers/{followerId} { allow read: if true; allow create, delete: if isOwner(followerId) || isAdmin(); }
@@ -115,7 +132,7 @@ service cloud.firestore {
       allow update: if isSignedIn() || isAdmin();
 
       match /offers/{offerId} {
-        allow create: if isSignedIn();
+        allow create: if isSignedIn() && offerGenderOk(id);
         allow read: if true;
         allow update: if isSignedIn() || isAdmin();
       }

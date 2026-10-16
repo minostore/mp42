@@ -3,7 +3,11 @@ import 'package:go_router/go_router.dart';
 import '../services/firestore_service.dart';
 import '../models/course.dart';
 import '../widgets/course_card.dart';
+import '../data/categories_tree.dart';
 import '../theme/app_theme.dart';
+import '../widgets/category_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class CoursesTab extends StatefulWidget {
   final bool embedded;
@@ -14,8 +18,7 @@ class CoursesTab extends StatefulWidget {
 }
 
 class _CoursesTabState extends State<CoursesTab> {
-  String _category = 'الكل';
-  final _categories = const ['الكل', 'البرمجة والتقنية', 'الرياضيات والعلوم', 'الذكاء الاصطناعي', 'اللغات والآداب', 'التصميم والمونتاج', 'إدارة الأعمال والتسويق'];
+  CategoryChoice _cat = const CategoryChoice();
   final _firestore = FirestoreService();
 
   @override
@@ -28,33 +31,15 @@ class _CoursesTabState extends State<CoursesTab> {
               padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
               child: Row(children: [
                 Text('الكورسات', style: Theme.of(context).textTheme.headlineSmall),
+                const Spacer(),
+                const _AddCourseButton(),
               ]),
             ),
-          SizedBox(
-            height: 46,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-              itemCount: _categories.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (context, i) {
-                final cat = _categories[i];
-                final selected = cat == _category;
-                return ChoiceChip(
-                  label: Text(cat),
-                  selected: selected,
-                  onSelected: (_) => setState(() => _category = cat),
-                  selectedColor: AppColors.ink,
-                  labelStyle: TextStyle(color: selected ? AppColors.paper : AppColors.muted, fontWeight: FontWeight.w700, fontSize: 12.5),
-                  backgroundColor: AppColors.white,
-                  side: const BorderSide(color: AppColors.line),
-                );
-              },
-            ),
-          ),
+          const SizedBox(height: 6),
+          CategoryFilterButton(value: _cat, onChanged: (c) => setState(() => _cat = c)),
           Expanded(
             child: StreamBuilder<List<Course>>(
-              stream: _firestore.watchCourses(category: _category),
+              stream: _firestore.watchCourses(),
               builder: (context, snap) {
                 if (snap.hasError) {
                   return Center(
@@ -71,7 +56,7 @@ class _CoursesTabState extends State<CoursesTab> {
                 if (!snap.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                final courses = snap.data!;
+                final courses = snap.data!.where((c) => _cat.matches(c.raw)).toList();
                 if (courses.isEmpty) {
                   return const Center(
                     child: Text(
@@ -93,6 +78,31 @@ class _CoursesTabState extends State<CoursesTab> {
           ),
         ],
       ),
+    );
+  }
+}
+
+
+/// زر «إضافة كورس جديد» — يظهر للمُفهّم والأدمن فقط.
+class _AddCourseButton extends StatelessWidget {
+  const _AddCourseButton();
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return const SizedBox.shrink();
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+      builder: (context, s) {
+        final m = s.data?.data() ?? const <String, dynamic>{};
+        final ok = m['role'] == 'mufhem' || m['mode'] == 'mofahhem' || m['role'] == 'admin' || m['isAdmin'] == true;
+        if (!ok) return const SizedBox.shrink();
+        return ElevatedButton.icon(
+          onPressed: () => context.push('/courses/new'),
+          icon: const Icon(Icons.add),
+          label: const Text('إضافة كورس جديد'),
+          style: ElevatedButton.styleFrom(minimumSize: const Size(0, 40)),
+        );
+      },
     );
   }
 }

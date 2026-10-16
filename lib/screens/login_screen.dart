@@ -182,18 +182,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: AppColors.ink,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.school_outlined,
-                  color: AppColors.gold,
-                ),
-              ),
+              ClipRRect(borderRadius: BorderRadius.circular(16), child: Image.asset('assets/images/logo.png', width: 64, height: 64)),
 
               const SizedBox(height: 22),
 
@@ -314,10 +303,18 @@ class _LoginScreenState extends State<LoginScreen> {
                           height: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: AppColors.ink,
+                            color: AppColors.primaryDark,
                           ),
                         )
                       : const Text('تسجيل الدخول'),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+              Center(
+                child: TextButton(
+                  onPressed: _loading ? null : () => context.push('/signup'),
+                  child: const Text('مستخدم جديد؟ أنشئ حسابك الآن', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.accent)),
                 ),
               ),
 

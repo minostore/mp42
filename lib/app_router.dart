@@ -19,6 +19,10 @@ import 'screens/group_detail_screen.dart';
 import 'screens/group_pdf_screen.dart';
 import 'screens/group_video_screen.dart';
 import 'screens/group_quiz_screen.dart';
+import 'screens/group_manage.dart';
+import 'screens/create_course_screen.dart';
+import 'screens/add_work_screen.dart';
+import 'screens/signup_screen.dart';
 import 'screens/lecture_recordings_screen.dart';
 import 'screens/groups_tab.dart';
 import 'screens/account_tab.dart';
@@ -46,7 +50,7 @@ GoRouter buildRouter() {
         }
       }
       final loggedIn = currentUser != null;
-      final loggingInRoutes = ['/login', '/forgot-password', '/', '/verify-email'];
+      final loggingInRoutes = ['/login', '/signup', '/forgot-password', '/', '/verify-email'];
 
       if (!firebaseReady) {
         // Do not force protected screens while Firebase is still starting.
@@ -61,7 +65,7 @@ GoRouter buildRouter() {
         return loggedIn ? '/home' : '/login';
       }
 
-      if (loggedIn && ['/login', '/forgot-password', '/'].contains(state.matchedLocation)) {
+      if (loggedIn && ['/login', '/signup', '/forgot-password', '/'].contains(state.matchedLocation)) {
         return '/home';
       }
 
@@ -87,6 +91,9 @@ GoRouter buildRouter() {
       GoRoute(path: '/favorites', builder: (context, state) => const FavoritesTab()),
       GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+      GoRoute(path: '/portfolio/new', builder: (context, state) => const AddWorkScreen()),
+      GoRoute(path: '/courses/new', builder: (context, state) => const CreateCourseScreen()),
+      GoRoute(path: '/signup', builder: (context, state) => const SignupScreen()),
       GoRoute(path: '/forgot-password', builder: (context, state) => const ForgotPasswordScreen()),
       GoRoute(path: '/verify-email', builder: (context, state) => const VerifyEmailScreen()),
       GoRoute(path: '/home', builder: (context, state) => const HomeShell()),
@@ -106,6 +113,7 @@ GoRouter buildRouter() {
       GoRoute(path: '/group/:gid/session/:sid', builder: (context, state) => GroupSessionScreen(groupId: state.pathParameters['gid']!, sessionId: state.pathParameters['sid']!)),
       GoRoute(path: '/group/:gid/pdf/:fid', builder: (context, state) => GroupPdfScreen(groupId: state.pathParameters['gid']!, fileId: state.pathParameters['fid']!, title: state.uri.queryParameters['title'] ?? 'ملف PDF')),
       GoRoute(path: '/group/:gid/video/:vid', builder: (context, state) => GroupVideoScreen(groupId: state.pathParameters['gid']!, kind: state.uri.queryParameters['kind'] ?? 'videos', itemId: state.pathParameters['vid']!, title: state.uri.queryParameters['title'] ?? 'فيديو')),
+      GoRoute(path: '/group/:gid/quiz-new', builder: (context, state) => CreateQuizScreen(groupId: state.pathParameters['gid']!)),
       GoRoute(path: '/group/:gid/quiz/:qid', builder: (context, state) => GroupQuizScreen(groupId: state.pathParameters['gid']!, quizId: state.pathParameters['qid']!)),
       GoRoute(path: '/admin/recordings', builder: (context, state) => const LectureRecordingsScreen()),
       GoRoute(path: '/admin/recordings/:rid', builder: (context, state) => AdminRecordingPlayerScreen(recordingId: state.pathParameters['rid']!, title: state.uri.queryParameters['title'] ?? 'تسجيل')),

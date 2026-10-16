@@ -399,7 +399,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
       final kind = ext == 'pdf' ? 'pdf' : 'img';
       final safeName = f.name.replaceAll(RegExp(r'[^\w\.\-\u0600-\u06FF]'), '_');
       final ref = FirebaseStorage.instance.ref('meeting_files/${widget.channel}/${DateTime.now().millisecondsSinceEpoch}_$safeName');
-      await ref.putData(bytes, SettableMetadata(contentType: kind == 'pdf' ? 'application/pdf' : 'image/$ext'));
+      await ref.putData(bytes, SettableMetadata(contentType: kind == 'pdf' ? 'application/pdf' : (ext == 'png' ? 'image/png' : 'image/jpeg')));
       final url = await ref.getDownloadURL();
       final shortName = f.name.length > 40 ? f.name.substring(0, 40) : f.name;
       setState(() { _fileUrl = url; _fileName = shortName; _fileKind = kind; _uploading = false; });

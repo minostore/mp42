@@ -40,7 +40,7 @@ class _AdminHome extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('مركز الاعتماد الموحد — مراجعة الكورسات'),
-        backgroundColor: AppColors.ink,
+        backgroundColor: AppColors.primaryDark,
         foregroundColor: AppColors.paper,
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(

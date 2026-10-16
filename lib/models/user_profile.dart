@@ -9,6 +9,7 @@ class UserProfile {
   final String mode;
   final bool isAdmin;
   final String bio;
+  final String gender;
   final double rating;
   final int followersCount;
   final int followingCount;
@@ -24,6 +25,7 @@ class UserProfile {
     this.mode = 'mostafhem',
     this.isAdmin = false,
     this.bio = '',
+    this.gender = '',
     this.rating = 0,
     this.followersCount = 0,
     this.followingCount = 0,
@@ -35,15 +37,16 @@ class UserProfile {
     final rawMode = (map['mode'] ?? map['accountType'] ?? 'mostafhem').toString();
     return UserProfile(
       uid: uid,
-      name: (map['name'] ?? '').toString(),
+      name: (map['name'] ?? map['fullName'] ?? '').toString(),
       email: (map['email'] ?? '').toString(),
-      phone: (map['phone'] ?? '').toString(),
-      photoUrl: (map['photoUrl'] ?? map['imageUrl'] ?? '').toString(),
+      phone: (map['phone'] ?? map['phoneNumber'] ?? '').toString(),
+      photoUrl: (map['profilePictureUrl'] ?? map['photoUrl'] ?? map['imageUrl'] ?? '').toString(),
       joinedAt: map['joinedAt']?.toDate(),
       role: (map['role'] ?? 'student').toString(),
       mode: rawMode == 'mofahhem' ? 'mofahhem' : 'mostafhem',
       isAdmin: map['isAdmin'] == true || (map['role'] ?? '').toString() == 'admin',
       bio: (map['bio'] ?? '').toString(),
+      gender: (map['gender'] ?? '').toString(),
       rating: (map['rating'] is num ? (map['rating'] as num).toDouble() : double.tryParse((map['rating'] ?? '0').toString()) ?? 0),
       followersCount: (map['followersCount'] is num ? (map['followersCount'] as num).toInt() : 0),
       followingCount: (map['followingCount'] is num ? (map['followingCount'] as num).toInt() : 0),

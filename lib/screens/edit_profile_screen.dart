@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/user_profile.dart';
 import '../services/firestore_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/user_avatar.dart';
 
 class EditProfileScreen extends StatefulWidget {
   final UserProfile profile;
@@ -46,17 +48,22 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     setState(() => _saving = true);
     try {
       final user = FirebaseAuth.instance.currentUser!;
-      String photoUrl = widget.profile.photoUrl;
+      await FirestoreService().updateUserProfile(uid: user.uid, name: name);
       if (_picked != null) {
-        final ref = FirebaseStorage.instance.ref('public/profiles/${user.uid}.jpg');
+        // الصورة لا تُنشر مباشرة: تُحفظ كطلب مراجعة، وتبقى الصورة الحالية/الافتراضية حتى تقبلها الإدارة
+        final ref = FirebaseStorage.instance.ref('pending/profiles/${user.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg');
         await ref.putFile(File(_picked!.path), SettableMetadata(contentType: 'image/jpeg'));
-        photoUrl = await ref.getDownloadURL();
+        final pendingUrl = await ref.getDownloadURL();
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'pendingProfilePictureUrl': pendingUrl,
+          'profilePicturePending': true,
+          'profilePictureRejectReason': FieldValue.delete(),
+        }, SetOptions(merge: true));
       }
-      await FirestoreService().updateUserProfile(uid: user.uid, name: name, photoUrl: photoUrl);
       await user.updateDisplayName(name);
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تحديث الملف الشخصي')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_picked != null ? 'تم حفظ بياناتك. صورتك الجديدة قيد المراجعة وستظهر بعد الموافقة عليها.' : 'تم تحديث الملف الشخصي')));
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر حفظ الملف: $e')));
@@ -79,20 +86,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               child: Stack(
                 alignment: Alignment.bottomRight,
                 children: [
-                  CircleAvatar(
-                    radius: 52,
-                    backgroundImage: _picked != null
-                        ? FileImage(File(_picked!.path))
-                        : (currentPhoto.isNotEmpty ? NetworkImage(currentPhoto) : null) as ImageProvider?,
-                    backgroundColor: AppColors.emeraldLight,
-                    child: (_picked == null && currentPhoto.isEmpty)
-                        ? Text(_name.text.isNotEmpty ? _name.text[0] : 'م', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800))
-                        : null,
-                  ),
+                  _picked != null
+                      ? CircleAvatar(radius: 52, backgroundImage: FileImage(File(_picked!.path)))
+                      : UserAvatar(photoUrl: currentPhoto, gender: widget.profile.gender, radius: 52),
                   const CircleAvatar(radius: 17, child: Icon(Icons.camera_alt, size: 18)),
                 ],
               ),
             ),
+          ),
+          StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance.collection('users').doc(FirebaseAuth.instance.currentUser!.uid).snapshots(),
+            builder: (_, s) => PhotoStatusBanner(user: s.data?.data()),
           ),
           const SizedBox(height: 26),
           TextField(controller: _name, decoration: const InputDecoration(labelText: 'الاسم')),
