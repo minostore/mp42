@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/smart_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
@@ -8,6 +9,7 @@ import '../models/course.dart';
 import '../models/lesson.dart';
 import '../models/user_profile.dart';
 import '../theme/app_theme.dart';
+import '../widgets/course_purchase_sheet.dart';
 
 class CourseDetailScreen extends StatefulWidget {
   final String courseId;
@@ -67,6 +69,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
             future: _purchasedFuture ??= (uid == null ? Future.value(false) : firestore.hasPurchased(uid, widget.courseId)),
             builder: (context, purchasedSnap) {
               final purchased = purchasedSnap.data ?? false;
+              final isOwnCourse = uid != null && uid == course.instructorId;
               if (purchased && !_openedPurchasedLesson && widget.initialLessonNumber <= 1) {
                 _openedPurchasedLesson = true;
                 WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -76,7 +79,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                   context.push('/course/${widget.courseId}/lesson/${lessons.first.id}');
                 });
               }
-              return CustomScrollView(
+              return Stack(children: [
+              CustomScrollView(
                 slivers: [
                   SliverAppBar(
                     expandedHeight: 210,
@@ -84,7 +88,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                     backgroundColor: AppColors.primaryDark,
                     leading: IconButton(icon: const Icon(Icons.arrow_forward, color: Colors.white), onPressed: () => context.pop()),
                     flexibleSpace: FlexibleSpaceBar(
-                      background: CachedNetworkImage(imageUrl: course.thumbnailUrl, fit: BoxFit.cover),
+                      background: SmartImage(course.thumbnailUrl, fit: BoxFit.cover),
                     ),
                   ),
                   SliverToBoxAdapter(
@@ -126,7 +130,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                                   child: Padding(
                                     padding: const EdgeInsets.all(14),
                                     child: Row(children: [
-                                      CircleAvatar(radius: 28, backgroundImage: teacher.photoUrl.isNotEmpty ? NetworkImage(teacher.photoUrl) : null, child: teacher.photoUrl.isEmpty ? Text(teacher.name.isNotEmpty ? teacher.name[0] : 'م') : null),
+                                      CircleAvatar(radius: 28, backgroundImage: teacher.photoUrl.isNotEmpty ? smartImageProvider(teacher.photoUrl) : null, child: teacher.photoUrl.isEmpty ? Text(teacher.name.isNotEmpty ? teacher.name[0] : 'م') : null),
                                       const SizedBox(width: 12),
                                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                         Text(teacher.name.isEmpty ? course.instructorName : teacher.name, style: const TextStyle(fontWeight: FontWeight.w800)),
@@ -191,7 +195,29 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                     ),
                   ),
                 ],
-              );
+              ),
+              if (!purchased && !isOwnCourse && uid != null)
+                Positioned(
+                  left: 0, right: 0, bottom: 0,
+                  child: SafeArea(
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                      decoration: const BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(blurRadius: 8, color: Colors.black12)]),
+                      child: Row(children: [
+                        Text(course.price <= 0 ? 'مجاني' : '${course.price.toStringAsFixed(course.price % 1 == 0 ? 0 : 2)} جنيه', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                        const Spacer(),
+                        FilledButton(
+                          onPressed: () async {
+                            final ok = await showCoursePurchaseSheet(context, course);
+                            if (ok && mounted) setState(() { _purchasedFuture = null; });
+                          },
+                          child: const Text('شراء الكورس'),
+                        ),
+                      ]),
+                    ),
+                  ),
+                ),
+              ]);
             },
           );
         },

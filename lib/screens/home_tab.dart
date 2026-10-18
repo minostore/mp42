@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/smart_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -42,7 +43,7 @@ class HomeTab extends StatelessWidget {
                           CircleAvatar(
                             radius: 23,
                             backgroundColor: AppColors.emerald,
-                            backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+                            backgroundImage: photoUrl.isNotEmpty ? smartImageProvider(photoUrl) : null,
                             child: photoUrl.isEmpty ? Text(name.isNotEmpty ? name[0] : 'ط', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)) : null,
                           ),
                           const SizedBox(width: 12),
@@ -52,7 +53,7 @@ class HomeTab extends StatelessWidget {
                               children: [
                                 Row(children: [
                                   if (platformLogo.isNotEmpty)
-                                    Padding(padding: const EdgeInsets.only(left: 6), child: Image.network(platformLogo, width: 22, height: 22, fit: BoxFit.contain)),
+                                    Padding(padding: const EdgeInsets.only(left: 6), child: SmartImage(platformLogo, width: 22, height: 22, fit: BoxFit.contain)),
                                   Text(platformName, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
                                 ]),
                                 const SizedBox(height: 2),

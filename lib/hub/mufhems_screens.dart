@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import '../widgets/smart_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -38,13 +39,14 @@ class _MufhemsScreenState extends State<MufhemsScreen> {
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _db.collection('users').where('role', isEqualTo: 'mufhem').snapshots(),
+            stream: _db.collection('users').where(Filter.or(Filter('role', isEqualTo: 'mufhem'), Filter('mode', isEqualTo: 'mofahhem'))).snapshots(),
             builder: (context, snap) {
               if (snap.hasError) return EmptyHint(icon: Icons.error_outline, text: friendlyError(snap.error));
               if (!snap.hasData) return const Center(child: CircularProgressIndicator());
               final docs = snap.data!.docs.where((d) {
                 final m = d.data();
-                if (m['isProfileApproved'] != true) return false;
+                // كل المفهمين يظهرون (اعتماد الصورة لا يخفي الحساب)؛ المحظورون فقط يُستثنون
+                if (m['status'] == 'banned' || m['isBanned'] == true) return false;
                 if (_q.isEmpty) return true;
                 return '${m['fullName'] ?? m['name']} ${m['specialization']}'.contains(_q);
               }).toList();
@@ -191,7 +193,7 @@ class _WorksGrid extends StatelessWidget {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Expanded(
                 child: Stack(fit: StackFit.expand, children: [
-                  thumb.isEmpty ? Container(color: AppColors.paperDim) : CachedNetworkImage(imageUrl: thumb, fit: BoxFit.cover),
+                  thumb.isEmpty ? Container(color: AppColors.paperDim) : SmartImage(thumb, fit: BoxFit.cover),
                   if (w['mediaType'] == 'video') const Center(child: Icon(Icons.play_circle_fill, color: Colors.white, size: 40)),
                 ]),
               ),
@@ -266,7 +268,7 @@ class _PortfolioDetailScreenState extends State<PortfolioDetailScreen> {
                           ]),
                         )
                       : Container(color: Colors.black, child: const Center(child: CircularProgressIndicator())))
-                  : (media.isEmpty ? Container(color: AppColors.paperDim) : CachedNetworkImage(imageUrl: media, fit: BoxFit.cover)),
+                  : (media.isEmpty ? Container(color: AppColors.paperDim) : SmartImage(media, fit: BoxFit.cover)),
             ),
             Padding(
               padding: const EdgeInsets.all(16),

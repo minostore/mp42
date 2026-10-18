@@ -114,7 +114,12 @@ Stream<String> watchWebRole(String uid) => FirebaseFirestore.instance
     .collection('users')
     .doc(uid)
     .snapshots()
-    .map((d) => ((d.data() ?? const {})['role'] ?? 'mustafhem').toString());
+    .map((d) {
+      final m = d.data() ?? const <String, dynamic>{};
+      // مفهّم = role mufhem أو mode/accountType mofahhem (الحقل يختلف بين الحسابات)
+      if (m['role'] == 'mufhem' || m['mode'] == 'mofahhem' || m['accountType'] == 'mofahhem') return 'mufhem';
+      return (m['role'] ?? 'mustafhem').toString();
+    });
 
 Future<void> setWebRole(String uid, String role) =>
     FirebaseFirestore.instance.collection('users').doc(uid).update({'role': role});

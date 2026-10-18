@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import '../services/device_lock_service.dart';
 
 import 'hub_tabs.dart';
 import 'groups_tab.dart';
@@ -16,6 +20,34 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   int _refreshNonce = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _checkDeviceLock();
+  }
+
+  /// جلسة محفوظة على جهاز غير الجهاز المسجّل: نخرّج المستخدم فورًا.
+  Future<void> _checkDeviceLock() async {
+    final lock = await DeviceLockService.claim();
+    if (!lock.locked || !mounted) return;
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          icon: const Icon(Icons.phonelink_lock, size: 36),
+          title: const Text('الحساب مسجّل على جهاز آخر'),
+          content: Text(lock.message),
+          actions: [FilledButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('حسنًا'))],
+        ),
+      ),
+    );
+    if (mounted) context.go('/login');
+  }
 
   final List<Widget> _tabs = const [
     CoursesHubTab(),

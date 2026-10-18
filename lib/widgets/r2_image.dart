@@ -1,5 +1,6 @@
 
 import 'package:flutter/material.dart';
+import 'smart_image.dart';
 import '../services/api_functions.dart';
 import '../services/r2_worker_service.dart';
 
@@ -78,8 +79,6 @@ class _R2ImageState extends State<R2Image> {
   Widget build(BuildContext context) {
     if (_failed) return widget.errorWidget ?? const SizedBox.shrink();
     if (_url == null) return widget.placeholder ?? const Center(child: CircularProgressIndicator());
-    return Image.network(_url!, fit: widget.fit, errorBuilder: (_, __, ___) {
-      return widget.errorWidget ?? const SizedBox.shrink();
-    });
+    return SmartImage(_url!, fit: widget.fit, error: widget.errorWidget ?? const SizedBox.shrink());
   }
 }

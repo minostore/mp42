@@ -1,3 +1,4 @@
+import '../widgets/smart_image.dart';
 import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -104,12 +105,7 @@ class _AppUpdateScreenState extends State<AppUpdateScreen> {
             child: Stack(fit: StackFit.expand, children: [
               // الخلفية: صورة التحديث تملأ الصفحة كاملة (أو تدرّج بألوان المنصة لو لا توجد صورة)
               if (hasImage)
-                CachedNetworkImage(
-                  imageUrl: u.imageUrl,
-                  fit: BoxFit.cover,
-                  placeholder: (_, __) => const ColoredBox(color: _C.ink),
-                  errorWidget: (_, __, ___) => const _GradientBg(),
-                )
+                SmartImage(u.imageUrl, fit: BoxFit.cover, placeholder: const ColoredBox(color: _C.ink), error: const _GradientBg())
               else
                 const _GradientBg(),
               // تدرّج داكن أسفل الصفحة ليظهر النص بوضوح فوق أي صورة
@@ -152,6 +148,8 @@ class _AppUpdateScreenState extends State<AppUpdateScreen> {
                       ),
                     ),
                     const Spacer(),
+                    const Text('يتوفر الآن تحديث جديد من التطبيق', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800, fontSize: 13.5)),
+                    const SizedBox(height: 6),
                     Text(u.title,
                         style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.white, height: 1.3)),
                     const SizedBox(height: 6),

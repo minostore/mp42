@@ -97,6 +97,13 @@ class GroupsService {
         .call<Map<String, dynamic>>({'groupId': groupId, 'sessionId': sessionId});
   }
 
+  /// حفظ شات الجلسة المسجلة مع التسجيل (بعد إنهاء الجلسة).
+  Future<void> saveSessionChat(String groupId, String sessionId, List<Map<String, dynamic>> messages) async {
+    await FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('saveGroupSessionChat')
+        .call<Map<String, dynamic>>({'groupId': groupId, 'sessionId': sessionId, 'messages': messages});
+  }
+
   Future<bool> joinSession({
     required BuildContext context,
     required String groupId,
@@ -129,6 +136,8 @@ class GroupsService {
           groupId: groupId,
           sessionId: sessionId,
           onEndForAll: moderator ? () => endSession(groupId, sessionId) : null,
+          record: record,
+          onSaveChat: (moderator && record) ? (msgs) => saveSessionChat(groupId, sessionId, msgs) : null,
         ),
       ),
     );

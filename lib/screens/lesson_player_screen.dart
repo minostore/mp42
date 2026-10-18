@@ -11,6 +11,7 @@ import '../services/r2_worker_service.dart';
 import '../models/lesson.dart';
 import '../theme/app_theme.dart';
 import '../services/learning_service.dart';
+import '../widgets/moving_watermark.dart';
 
 class LessonPlayerScreen extends StatefulWidget {
   final String courseId;
@@ -326,6 +327,7 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
                     },
                     child: Text('${_speed}x', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
                   ),
+                  const SizedBox(width: 44),
                 ],
               ),
               // المنتصف: تأخير / تشغيل / تقديم
@@ -405,7 +407,10 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
             onTap: _onVideoTap,
             child: AspectRatio(aspectRatio: c.value.aspectRatio, child: VideoPlayer(c)),
           ),
+        // علامة مائية متحركة (IP + الهاتف + البريد) وأيقونة فهمت أعلى اليمين
+        if (c != null && c.value.isInitialized) const Positioned.fill(child: MovingWatermark()),
         if (c != null && c.value.isInitialized) _buildControlsOverlay(c),
+        if (c != null && c.value.isInitialized) const Positioned(top: 8, right: 10, child: FahmtLogoBadge(size: 28)),
         // زر الرجوع عند الخطأ أو التحميل (لا توجد أزرار فوق الفيديو بعد)
         if (c == null || !c.value.isInitialized)
           Positioned(

@@ -56,20 +56,19 @@ class _CreatedCourses extends StatelessWidget {
         if (snap.hasError) return const Center(child: Text('تعذر تحميل كورساتك'));
         if (!snap.hasData) return const Center(child: CircularProgressIndicator());
         final courses = snap.data!.docs.map((d) => Course.fromMap(d.id, d.data())).toList();
-        if (courses.isEmpty) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text('لم تنشئ أي كورس بعد.\nيمكنك إنشاء الكورسات وإدارتها من منصة فهمت.', textAlign: TextAlign.center),
-            ),
-          );
-        }
-        return GridView.builder(
-          padding: const EdgeInsets.all(18),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, mainAxisSpacing: 14, crossAxisSpacing: 14, childAspectRatio: .72),
-          itemCount: courses.length,
-          itemBuilder: (context, i) => CourseCard(course: courses[i], onTap: () => context.push('/course/${courses[i].id}')),
-        );
+        return Column(children: [
+          const Padding(padding: EdgeInsets.fromLTRB(18, 12, 18, 0), child: Align(alignment: Alignment.centerRight, child: AddCourseButton())),
+          Expanded(
+            child: courses.isEmpty
+                ? const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('لم تنشئ أي كورس بعد.', textAlign: TextAlign.center)))
+                : GridView.builder(
+                    padding: const EdgeInsets.all(18),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, mainAxisSpacing: 14, crossAxisSpacing: 14, childAspectRatio: .72),
+                    itemCount: courses.length,
+                    itemBuilder: (context, i) => CourseCard(course: courses[i], onTap: () => context.push('/course/${courses[i].id}')),
+                  ),
+          ),
+        ]);
       },
     );
   }

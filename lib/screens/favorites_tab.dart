@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import '../widgets/smart_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -111,18 +112,16 @@ class _FavoriteCourseCard extends StatelessWidget {
                         size: 40,
                       ),
                     )
-                  : Image.network(
+                  : SmartImage(
                       course.thumbnailUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) {
-                        return Container(
-                          color: AppColors.emeraldLight,
-                          child: const Icon(
-                            Icons.menu_book,
-                            size: 40,
-                          ),
-                        );
-                      },
+                      error: Container(
+                        color: AppColors.emeraldLight,
+                        child: const Icon(
+                          Icons.menu_book,
+                          size: 40,
+                        ),
+                      ),
                     ),
             ),
             Expanded(

@@ -1,3 +1,4 @@
+import '../services/api_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -235,11 +236,15 @@ class RequestDetailScreen extends StatelessWidget {
                           if (g.connectionState != ConnectionState.done) return const LinearProgressIndicator();
                           final reason = g.data;
                           if (reason != null) {
-                            return Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(12)),
-                              child: Text(reason, style: const TextStyle(color: Color(0xFFB91C1C), fontWeight: FontWeight.w700, height: 1.6)),
-                            );
+                            // زر غير قابل للضغط، لونه باهت، وتحته سبب المنع
+                            return Column(children: [
+                              Opacity(
+                                opacity: .45,
+                                child: ElevatedButton.icon(onPressed: null, icon: const Icon(Icons.bolt), label: const Text('قدّم عرضك الآن')),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(reason, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFB91C1C), fontWeight: FontWeight.w700)),
+                            ]);
                           }
                           return ElevatedButton.icon(
                             onPressed: () => context.push('/requests/$requestId/offer'),
@@ -247,6 +252,22 @@ class RequestDetailScreen extends StatelessWidget {
                             label: Text(mine == null ? 'قدّم عرضك الآن' : 'تعديل عرضي'),
                           );
                         },
+                      ),
+                    if (isOwner && status == 'paid')
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            try {
+                              await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('completeIstifham').call<Map<String, dynamic>>({'requestId': requestId});
+                              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تأكيد اكتمال الجلسة وتحويل أرباح المفهم')));
+                            } on FirebaseFunctionsException catch (e) {
+                              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? 'تعذر التأكيد')));
+                            }
+                          },
+                          icon: const Icon(Icons.check_circle_outline),
+                          label: const Text('تأكيد اكتمال الجلسة'),
+                        ),
                       ),
                     if (mine != null && !isOwner)
                       Card(
@@ -303,6 +324,29 @@ class RequestDetailScreen extends StatelessWidget {
         ]),
       );
 
+  Future<void> _payOffer(BuildContext context, String offerId, Map<String, dynamic> o) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تأكيد الدفع'),
+        content: const Text('سيتم خصم سعر الاستفهام من محفظتك (80% للمفهم و20% للمنصة). هل تريد المتابعة؟'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('ادفع الآن')),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    try {
+      await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('payIstifham').call<Map<String, dynamic>>({'requestId': requestId, 'offerId': offerId});
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الدفع وتأكيد الجلسة')));
+    } on FirebaseFunctionsException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? 'تعذر الدفع'), action: SnackBarAction(label: 'شحن المحفظة', onPressed: () => openWebPage(context, '/wallet', inApp: false))));
+      }
+    }
+  }
+
   Widget _offerCard(BuildContext context, String offerId, Map<String, dynamic> o) {
     final avatar = (o['mufhemAvatar'] ?? '').toString();
     return Card(
@@ -319,10 +363,9 @@ class RequestDetailScreen extends StatelessWidget {
           const SizedBox(height: 6),
           Text('موعد الجاهزية: ${prettyDateTime(o['readyAt'])}', style: const TextStyle(color: AppColors.muted, fontSize: 12)),
           const SizedBox(height: 10),
-          // الدفع متاح على المنصة فقط (التطبيق بدون دفع)
           ElevatedButton(
-            onPressed: () => openWebPage(context, '/checkout/$requestId?offerId=$offerId', inApp: false),
-            child: const Text('قبول العرض (إتمام الدفع على المنصة)'),
+            onPressed: () => _payOffer(context, offerId, o),
+            child: Text('قبول العرض والدفع من المحفظة${(o['amount'] is num && (o['amount'] as num) > 0) ? ' (${o['amount']} ج.م)' : ''}'),
           ),
         ]),
       ),
@@ -391,7 +434,7 @@ class _MakeOfferScreenState extends State<MakeOfferScreen> {
           'mufhemId': user.uid,
           'mufhemName': user.displayName ?? 'مفهم',
           'mufhemAvatar': '',
-          'amount': 0, // الفترة المجانية: دائمًا صفر
+          'amount': (reqSnap.data()?['amount'] is num) ? reqSnap.data()!['amount'] : 50,
           ...base,
           'status': 'pending',
           'createdAt': DateTime.now().toIso8601String(),
@@ -468,8 +511,14 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
   CategoryChoice _choice = const CategoryChoice();
   DateTime? _when;
   bool _saving = false;
+  final _price = TextEditingController(text: '50');
 
   Future<void> _submit() async {
+    final price = double.tryParse(_price.text.trim().replaceAll(',', '.'));
+    if (price == null || price < 50) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('السعر لا يقل عن 50 جنيه')));
+      return;
+    }
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     if (_title.text.trim().isEmpty || _desc.text.trim().isEmpty || _goal.text.trim().isEmpty || _choice.isEmpty || (isOtherNode(_choice.main, _choice.sub, _choice.opt) && _choice.custom.isEmpty) || _when == null) {
@@ -484,8 +533,8 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
         'goal': _goal.text.trim(),
         ..._choice.toFields(),
         'meetingTime': webDateTime(_when!),
-        'originalAmount': 0,
-        'amount': 0,
+        'originalAmount': price,
+        'amount': price,
         'couponApplied': null,
         'status': 'pending_approval',
         'mustafhemId': user.uid,
@@ -512,6 +561,8 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
         TextField(controller: _desc, maxLines: 5, decoration: const InputDecoration(labelText: 'تفاصيل الاستفهام')),
         const SizedBox(height: 12),
         TextField(controller: _goal, maxLines: 3, decoration: const InputDecoration(labelText: 'الهدف المرجو تحقيقه')),
+        const SizedBox(height: 12),
+        TextField(controller: _price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'السعر الذي ستدفعه (ج.م) — لا يقل عن 50', helperText: '80% للمفهم و20% للمنصة')),
         const SizedBox(height: 12),
         CategoryPicker(value: _choice, onChanged: (c) => setState(() => _choice = c)),
         const Text('الموعد المقترح للمحاضرة', style: TextStyle(fontWeight: FontWeight.w800)),

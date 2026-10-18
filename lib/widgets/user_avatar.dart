@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'smart_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -45,11 +46,11 @@ class UserAvatar extends StatelessWidget {
         height: size,
         child: url.isEmpty
             ? Image(image: fallback, fit: BoxFit.cover)
-            : CachedNetworkImage(
-                imageUrl: url,
+            : SmartImage(
+                url,
                 fit: BoxFit.cover,
-                placeholder: (_, __) => Image(image: fallback, fit: BoxFit.cover),
-                errorWidget: (_, __, ___) => Image(image: fallback, fit: BoxFit.cover),
+                placeholder: Image(image: fallback, fit: BoxFit.cover),
+                error: Image(image: fallback, fit: BoxFit.cover),
               ),
       ),
     );

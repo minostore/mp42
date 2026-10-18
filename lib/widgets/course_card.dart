@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'smart_image.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/course.dart';
 import '../theme/app_theme.dart';
@@ -25,11 +26,11 @@ class CourseCard extends StatelessWidget {
           children: [
             AspectRatio(
               aspectRatio: 16 / 10,
-              child: CachedNetworkImage(
-                imageUrl: course.thumbnailUrl,
+              child: SmartImage(
+                course.thumbnailUrl,
                 fit: BoxFit.cover,
-                placeholder: (c, _) => Container(color: AppColors.paperDim),
-                errorWidget: (c, _, __) => Container(color: AppColors.paperDim),
+                placeholder: Container(color: AppColors.paperDim),
+                error: Container(color: AppColors.paperDim),
               ),
             ),
             Padding(

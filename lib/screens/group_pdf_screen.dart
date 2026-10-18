@@ -9,6 +9,7 @@ import '../services/groups_service.dart';
 import '../services/screen_protection_service.dart';
 import '../theme/app_theme.dart';
 import '../services/error_center.dart';
+import '../widgets/moving_watermark.dart';
 
 enum _Tool { browse, pen, highlight, eraser, text }
 
@@ -450,6 +451,8 @@ class _PdfPageViewState extends State<_PdfPageView> {
                       child: Transform.rotate(angle: -0.5, child: Text(widget.watermark, style: const TextStyle(color: Color(0x14000000), fontSize: 26, fontWeight: FontWeight.bold))),
                     ),
                   ),
+                  // علامة مائية متحركة: IP + الهاتف + البريد (تتغير أماكنها)
+                  const Positioned.fill(child: MovingWatermark(color: Color(0x55000000), fontSize: 9, copies: 4)),
                 ],
               ),
       );

@@ -84,7 +84,7 @@ class GroupDetailScreen extends StatelessWidget {
                           _ContentList(
                             groupId: groupId, kind: 'recordings', icon: Icons.slow_motion_video, empty: 'لا توجد جلسات مسجلة بعد',
                             ready: (d) => d['status'] == 'ready',
-                            subtitle: (d) => d['status'] == 'ready' ? _dur(d['durationSec']) : 'جارٍ المعالجة',
+                            subtitle: (d) => d['status'] == 'ready' ? _dur(d['durationSec']) : (d['status'] == 'failed' ? 'تعذر حفظ التسجيل: ${(d['error'] ?? '').toString()}' : 'جارٍ المعالجة'),
                             onOpen: (id, title) => context.push('/group/$groupId/video/$id?title=${Uri.encodeComponent(title)}&kind=recordings'),
                           ),
                           if (showStudents) GroupStudentsTab(groupId: groupId, role: role),
@@ -271,7 +271,7 @@ class _GroupSessionScreenState extends State<GroupSessionScreen> {
               const SizedBox(height: 12),
               if (_joining) const CircularProgressIndicator(),
               if (_error != null) Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))),
-              if (_recordHint) const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('هذه الجلسة مسجلة: اضغط زر التسجيل داخل الاجتماع لبدء التسجيل.', textAlign: TextAlign.center)),
+              if (_recordHint) const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('هذه الجلسة مسجلة تلقائيًا: يبدأ التسجيل مع الاجتماع ويُضاف إلى «الجلسات المسجلة» بعد إنهائه للجميع.', textAlign: TextAlign.center)),
               const SizedBox(height: 12),
               FilledButton.icon(onPressed: _joining ? null : _join, icon: const Icon(Icons.play_arrow), label: const Text('دخول الاجتماع')),
               TextButton(onPressed: () => context.canPop() ? context.pop() : context.go('/home'), child: const Text('رجوع')),

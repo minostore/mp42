@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import '../widgets/smart_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../models/course.dart';
@@ -82,10 +83,10 @@ class PurchasedCoursesList extends StatelessWidget {
                                   color: AppColors.emeraldLight,
                                   child: const Icon(Icons.menu_book, size: 60),
                                 )
-                              : Image.network(
+                              : SmartImage(
                                   course.thumbnailUrl,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(
+                                  error: Container(
                                     color: AppColors.emeraldLight,
                                     child: const Icon(Icons.menu_book, size: 60),
                                   ),
@@ -169,10 +170,10 @@ class _FavoriteCourses extends StatelessWidget {
                   leading: SizedBox(
                     width: 64,
                     height: 48,
-                    child: Image.network(
+                    child: SmartImage(
                       course.thumbnailUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Icon(Icons.menu_book),
+                      error: const Icon(Icons.menu_book),
                     ),
                   ),
                   title: Text(course.title, style: const TextStyle(fontWeight: FontWeight.bold)),

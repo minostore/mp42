@@ -1,4 +1,6 @@
+import '../widgets/moving_watermark.dart';
 import 'dart:async';
+import '../widgets/smart_image.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -26,6 +28,9 @@ class AgoraMeetingRoom extends StatefulWidget {
   final String? groupId;
   final String? sessionId;
   final Future<void> Function()? onEndForAll;
+  // الجلسة مسجّلة؟ لو نعم يُحفظ سجل الشات مع التسجيل عند إنهاء الاجتماع للجميع
+  final bool record;
+  final Future<void> Function(List<Map<String, dynamic>> messages)? onSaveChat;
 
   const AgoraMeetingRoom({
     super.key,
@@ -38,6 +43,8 @@ class AgoraMeetingRoom extends StatefulWidget {
     this.groupId,
     this.sessionId,
     this.onEndForAll,
+    this.record = false,
+    this.onSaveChat,
   });
 
   @override
@@ -49,6 +56,14 @@ class _Stroke {
   final double width;
   final List<Offset> points; // مُطبَّعة 0..1
   _Stroke(this.color, this.width, [List<Offset>? pts]) : points = pts ?? [];
+}
+
+class _ChatMsg {
+  final String name;
+  final String text;
+  final int atMs;
+  final bool mine;
+  _ChatMsg(this.name, this.text, this.atMs, this.mine);
 }
 
 class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
@@ -80,6 +95,23 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   final List<Offset> _pendingPoints = [];
   Timer? _flushTimer;
 
+  // الممحاة (مسح جزء من السبورة)
+  bool _eraser = false;
+  DateTime _lastEraseSend = DateTime.fromMillisecondsSinceEpoch(0);
+  static const double _eraseRadius = 0.035;
+
+  // كتم المشاركين (يتحكم به من بدأ الاجتماع فقط)
+  int? _modUid; // Agora uid الخاص بمدير الاجتماع (من رسالة التعريف)
+  final Set<int> _modMuted = <int>{}; // عند المدير: من كتمهم
+  bool _forceMuted = false; // عند الطالب: كتمه المدير
+
+  // الشات الداخلي (يبقى في الذاكرة فقط ويختفي بانتهاء الاجتماع)
+  final List<_ChatMsg> _chat = [];
+  final _chatC = TextEditingController();
+  final _chatScroll = ScrollController();
+  bool _chatOpen = false;
+  int _unread = 0;
+
   // الملف المشارَك
   String? _fileName;
   String? _fileKind; // pdf | img
@@ -106,7 +138,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     }, onError: (_) {});
   }
 
-  void _sendHello() => _send({'t': 'n', 'n': widget.displayName});
+  void _sendHello() => _send({'t': 'n', 'n': widget.displayName, 'mod': widget.moderator ? 1 : 0});
 
   Future<void> _initialize() async {
     try {
@@ -139,6 +171,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           _sendHello(); // يعرّف المنضم الجديد باسمي
           // المدرّس يعيد إرسال حالة السبورة/الملف للمنضم الجديد
           if (widget.moderator) {
+            for (final u in _modMuted) { _send({'t': 'm', 'to': u, 'v': 1}); }
             if (_boardOpen) _send({'t': 'b', 'o': 1});
             if (_fileUrl != null) _send({'t': 'f', 'u': _fileUrl, 'n': _fileName, 'k': _fileKind});
           }
@@ -194,6 +227,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   Future<void> _toggleMic() async {
     final engine = _engine;
     if (engine == null) return;
+    if (_muted && _forceMuted) { _toast('كتم مدير الاجتماع صوتك'); return; }
     if (_muted) {
       final st = await Permission.microphone.request();
       if (!st.isGranted) { _toast('اسمح للتطبيق باستخدام الميكروفون من إعدادات الهاتف'); return; }
@@ -273,9 +307,30 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     try {
       final m = jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
       switch (m['t']) {
-        case 'n': // اسم مشارك
+        case 'n': // اسم مشارك (+ هل هو مدير الاجتماع)
           if (!mounted) return;
-          setState(() => _names[fromUid] = (m['n'] ?? '').toString());
+          setState(() {
+            _names[fromUid] = (m['n'] ?? '').toString();
+            if (m['mod'] == 1) _modUid = fromUid;
+          });
+          break;
+        case 'm': // أمر كتم/إلغاء كتم من مدير الاجتماع لمشارك محدد
+          if (m['to'] != widget.uid || fromUid != _modUid) return;
+          _applyForcedMute(m['v'] == 1);
+          break;
+        case 'e': // ممحاة على السبورة
+          if (!mounted) return;
+          setState(() => _eraseAt(Offset((m['x'] as num).toDouble(), (m['y'] as num).toDouble()), (m['r'] as num).toDouble()));
+          break;
+        case 'c': // رسالة شات
+          if (!mounted) return;
+          final txt = (m['x'] ?? '').toString();
+          if (txt.trim().isEmpty) return;
+          setState(() {
+            _chat.add(_ChatMsg((m['n'] ?? _names[fromUid] ?? 'مشارك').toString(), txt, DateTime.now().millisecondsSinceEpoch, false));
+            if (!_chatOpen) _unread++;
+          });
+          _scrollChatDown();
           break;
         case 'b': // فتح/غلق السبورة
           if (!mounted) return;
@@ -326,7 +381,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   }
 
   void _closeBoard() {
-    setState(() { _boardOpen = false; _strokes.clear(); _remoteStrokes.clear(); });
+    setState(() { _boardOpen = false; _eraser = false; _strokes.clear(); _remoteStrokes.clear(); });
     _send({'t': 'b', 'o': 0});
   }
 
@@ -380,6 +435,112 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     _flushTimer?.cancel();
     _flushPending();
     _current = null;
+  }
+
+  // ===== الممحاة: تمسح الجزء الذي تمر عليه فقط (تقسّم الخط) =====
+  static double _segDist(Offset p, Offset a, Offset b) {
+    final ab = b - a;
+    final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
+    if (len2 == 0) return (p - a).distance;
+    var t = ((p.dx - a.dx) * ab.dx + (p.dy - a.dy) * ab.dy) / len2;
+    t = t.clamp(0.0, 1.0);
+    final proj = Offset(a.dx + ab.dx * t, a.dy + ab.dy * t);
+    return (p - proj).distance;
+  }
+
+  /// يحذف أجزاء الخطوط القريبة من النقطة p (إحداثيات مُطبَّعة 0..1).
+  void _eraseAt(Offset p, double r) {
+    final out = <_Stroke>[];
+    for (final s in _strokes) {
+      final pts = s.points;
+      if (pts.length == 1) {
+        if ((pts.first - p).distance >= r) out.add(s);
+        continue;
+      }
+      var cur = <Offset>[];
+      void flush() {
+        if (cur.length >= 2) out.add(_Stroke(s.color, s.width, cur));
+        cur = <Offset>[];
+      }
+      for (var i = 0; i + 1 < pts.length; i++) {
+        if (_segDist(p, pts[i], pts[i + 1]) >= r) {
+          if (cur.isEmpty) cur.add(pts[i]);
+          cur.add(pts[i + 1]);
+        } else {
+          flush();
+        }
+      }
+      flush();
+    }
+    _strokes
+      ..clear()
+      ..addAll(out);
+    _remoteStrokes.clear(); // الخطوط الجديدة لها كائنات جديدة
+  }
+
+  void _eraseLocal(Offset local, Size size) {
+    final p = Offset((local.dx / size.width).clamp(0.0, 1.0), (local.dy / size.height).clamp(0.0, 1.0));
+    setState(() => _eraseAt(p, _eraseRadius));
+    final now = DateTime.now();
+    if (now.difference(_lastEraseSend).inMilliseconds >= 35) {
+      _lastEraseSend = now;
+      _send({'t': 'e', 'x': double.parse(p.dx.toStringAsFixed(3)), 'y': double.parse(p.dy.toStringAsFixed(3)), 'r': _eraseRadius});
+    }
+  }
+
+  // ===== كتم المشاركين =====
+  void _toggleMuteStudent(int uid) {
+    final nowMuted = !_modMuted.contains(uid);
+    setState(() { nowMuted ? _modMuted.add(uid) : _modMuted.remove(uid); });
+    _send({'t': 'm', 'to': uid, 'v': nowMuted ? 1 : 0});
+  }
+
+  Future<void> _applyForcedMute(bool mute) async {
+    if (!mounted) return;
+    if (mute) {
+      _forceMuted = true;
+      if (!_muted) {
+        try { await _engine?.updateChannelMediaOptions(const ChannelMediaOptions(publishMicrophoneTrack: false)); } catch (_) {}
+        if (mounted) setState(() => _muted = true);
+      }
+      _toast('كتم مدير الاجتماع صوتك');
+    } else {
+      _forceMuted = false;
+      _toast('سمح لك مدير الاجتماع بفتح المايك');
+    }
+  }
+
+  // ===== الشات الداخلي =====
+  void _scrollChatDown() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_chatScroll.hasClients) _chatScroll.jumpTo(_chatScroll.position.maxScrollExtent);
+    });
+  }
+
+  void _sendChat() {
+    var text = _chatC.text.trim();
+    if (text.isEmpty) return;
+    if (text.length > 240) text = text.substring(0, 240); // حد Agora 1KB للرسالة
+    _chatC.clear();
+    setState(() => _chat.add(_ChatMsg(widget.displayName, text, DateTime.now().millisecondsSinceEpoch, true)));
+    _send({'t': 'c', 'n': widget.displayName, 'x': text});
+    _scrollChatDown();
+  }
+
+  void _openChat() {
+    setState(() { _chatOpen = true; _unread = 0; });
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF171B22),
+      builder: (ctx) => _ChatSheet(
+        messages: _chat,
+        controller: _chatC,
+        scroll: _chatScroll,
+        onSend: _sendChat,
+        recordedNote: widget.record,
+      ),
+    ).whenComplete(() { if (mounted) setState(() { _chatOpen = false; _unread = 0; }); });
   }
 
   // ===== مشاركة ملف =====
@@ -449,6 +610,14 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
         _toast('تعذر إنهاء الاجتماع: $e');
         return;
       }
+      // الجلسة المسجلة: يُحفظ الشات مع التسجيل ليظهر لمن يشاهد الجلسة المسجلة
+      if (widget.record && widget.onSaveChat != null && _chat.isNotEmpty) {
+        try {
+          await widget.onSaveChat!([
+            for (final c in _chat) {'n': c.name, 'x': c.text, 'at': c.atMs},
+          ]);
+        } catch (_) {}
+      }
       await _leave();
     }
   }
@@ -470,9 +639,18 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
               title: Text('${widget.displayName} (أنت)', style: const TextStyle(color: Colors.white)),
             ),
             for (final u in _remoteUsers)
-              ListTile(
-                leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-                title: Text((_names[u] ?? '').isEmpty ? 'مشارك' : _names[u]!, style: const TextStyle(color: Colors.white)),
+              StatefulBuilder(
+                builder: (ctx, setRow) => ListTile(
+                  leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+                  title: Text((_names[u] ?? '').isEmpty ? 'مشارك' : _names[u]!, style: const TextStyle(color: Colors.white)),
+                  trailing: widget.moderator
+                      ? TextButton.icon(
+                          onPressed: () { _toggleMuteStudent(u); setRow(() {}); },
+                          icon: Icon(_modMuted.contains(u) ? Icons.mic_off : Icons.mic, size: 18, color: _modMuted.contains(u) ? const Color(0xFFEF4444) : const Color(0xFF22C55E)),
+                          label: Text(_modMuted.contains(u) ? 'إلغاء الكتم' : 'كتم', style: TextStyle(color: _modMuted.contains(u) ? const Color(0xFFEF4444) : const Color(0xFF22C55E))),
+                        )
+                      : null,
+                ),
               ),
           ],
         ),
@@ -484,6 +662,8 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   void dispose() {
     _sessionSub?.cancel();
     _flushTimer?.cancel();
+    _chatC.dispose();
+    _chatScroll.dispose();
     final engine = _engine;
     if (engine != null) {
       if (_sharingScreen) { engine.stopScreenCapture(); }
@@ -504,6 +684,9 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
         child: Stack(
           children: [
             Positioned.fill(child: _remoteGrid(engine)),
+            // علامة مائية متحركة (IP + الهاتف + البريد) وأيقونة فهمت أعلى اليمين
+            const Positioned.fill(child: MovingWatermark()),
+            const Positioned(top: 8, right: 12, child: FahmtLogoBadge(size: 30)),
             // الشريط العلوي
             Positioned(
               top: 0, left: 0, right: 0,
@@ -565,20 +748,26 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 14, 12, 18),
       decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black87, Colors.transparent])),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      child: Center(
+        child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _control(icon: _muted ? Icons.mic_off : Icons.mic, label: _muted ? 'فتح المايك' : 'كتم المايك', active: !_muted, onTap: _toggleMic),
+          _control(icon: _muted ? Icons.mic_off : Icons.mic, label: _forceMuted ? 'مكتوم' : (_muted ? 'فتح المايك' : 'كتم المايك'), active: !_muted, onTap: _toggleMic),
           _control(icon: _cameraOff ? Icons.videocam_off : Icons.videocam, label: _cameraOff ? 'فتح الكاميرا' : 'إيقاف الكاميرا', active: !_cameraOff, onTap: _toggleCamera),
           _control(icon: _speakerOn ? Icons.volume_up : Icons.hearing, label: _speakerOn ? 'السماعة' : 'الأذن', onTap: () async {
             setState(() => _speakerOn = !_speakerOn);
             await _engine?.setEnableSpeakerphone(_speakerOn);
           }),
           if (widget.moderator) _control(icon: _sharingScreen ? Icons.stop_screen_share : Icons.screen_share, label: _sharingScreen ? 'إيقاف المشاركة' : 'مشاركة الشاشة', active: _sharingScreen, onTap: _toggleScreenShare),
+          _control(icon: Icons.chat_bubble_outline, label: _unread > 0 ? 'الشات ($_unread)' : 'الشات', active: _unread > 0, onTap: () async => _openChat()),
           if (widget.moderator) _control(icon: Icons.people, label: 'المتصلون', onTap: () async => _showParticipants()),
           if (widget.moderator) _control(icon: Icons.add_circle_outline, label: 'المزيد', onTap: () async => _showTools()),
           _control(icon: Icons.call_end, label: 'إنهاء', color: const Color(0xFFDC2626), onTap: _endPressed),
-        ],
+        ].expand((w) => [w, const SizedBox(width: 14)]).toList()..removeLast(),
+      ),
+      ),
       ),
     );
   }
@@ -634,7 +823,12 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
                         decoration: BoxDecoration(color: _boardColors[i], shape: BoxShape.circle, border: Border.all(color: _colorIndex == i ? Colors.white : Colors.white24, width: 2)),
                       ),
                     ),
-                  IconButton(onPressed: _clearBoard, icon: const Icon(Icons.delete_outline, color: Colors.white), tooltip: 'مسح'),
+                  IconButton(
+                    onPressed: () => setState(() => _eraser = !_eraser),
+                    icon: Icon(Icons.cleaning_services, color: _eraser ? const Color(0xFFFBBF24) : Colors.white),
+                    tooltip: _eraser ? 'إيقاف الممحاة' : 'ممحاة (تمسح جزءًا محددًا)',
+                  ),
+                  IconButton(onPressed: _clearBoard, icon: const Icon(Icons.delete_outline, color: Colors.white), tooltip: 'مسح كل السبورة'),
                   IconButton(onPressed: _closeBoard, icon: const Icon(Icons.close, color: Colors.white), tooltip: 'إغلاق'),
                 ],
               ],
@@ -645,9 +839,9 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
               builder: (context, c) {
                 final size = Size(c.maxWidth, c.maxHeight);
                 return GestureDetector(
-                  onPanStart: (d) => _panStart(d.localPosition, size),
-                  onPanUpdate: (d) => _panUpdate(d.localPosition, size),
-                  onPanEnd: (_) => _panEnd(),
+                  onPanStart: (d) => (_eraser && widget.moderator) ? _eraseLocal(d.localPosition, size) : _panStart(d.localPosition, size),
+                  onPanUpdate: (d) => (_eraser && widget.moderator) ? _eraseLocal(d.localPosition, size) : _panUpdate(d.localPosition, size),
+                  onPanEnd: (_) => (_eraser && widget.moderator) ? null : _panEnd(),
                   child: CustomPaint(size: size, painter: _BoardPainter(_strokes), child: const SizedBox.expand()),
                 );
               },
@@ -679,7 +873,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           ),
           Expanded(
             child: _fileKind == 'img'
-                ? InteractiveViewer(child: Center(child: Image.network(url, fit: BoxFit.contain)))
+                ? InteractiveViewer(child: Center(child: SmartImage(url, fit: BoxFit.contain)))
                 : _SharedPdfView(key: ValueKey(url), url: url),
           ),
           const SizedBox(height: 90),
@@ -825,5 +1019,97 @@ class _SharedPdfViewState extends State<_SharedPdfView> {
     final c = _controller;
     if (c == null) return const Center(child: CircularProgressIndicator());
     return PdfViewPinch(controller: c);
+  }
+}
+
+/// نافذة الشات الداخلي للاجتماع.
+class _ChatSheet extends StatefulWidget {
+  final List<_ChatMsg> messages;
+  final TextEditingController controller;
+  final ScrollController scroll;
+  final VoidCallback onSend;
+  final bool recordedNote;
+  const _ChatSheet({required this.messages, required this.controller, required this.scroll, required this.onSend, required this.recordedNote});
+
+  @override
+  State<_ChatSheet> createState() => _ChatSheetState();
+}
+
+class _ChatSheetState extends State<_ChatSheet> {
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    // تحديث القائمة لما تصل رسائل جديدة والنافذة مفتوحة
+    _t = Timer.periodic(const Duration(milliseconds: 600), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottom),
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.6,
+        child: Column(
+          children: [
+            const Padding(padding: EdgeInsets.all(12), child: Text('شات الاجتماع', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16))),
+            Text(widget.recordedNote ? 'الاجتماع مسجّل: يُحفظ الشات مع التسجيل' : 'يُحذف الشات عند انتهاء الاجتماع', style: const TextStyle(color: Colors.white54, fontSize: 11.5)),
+            const Divider(color: Colors.white12),
+            Expanded(
+              child: widget.messages.isEmpty
+                  ? const Center(child: Text('لا توجد رسائل بعد', style: TextStyle(color: Colors.white54)))
+                  : ListView.builder(
+                      controller: widget.scroll,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      itemCount: widget.messages.length,
+                      itemBuilder: (_, i) {
+                        final m = widget.messages[i];
+                        return Align(
+                          alignment: m.mine ? Alignment.centerLeft : Alignment.centerRight,
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                            decoration: BoxDecoration(color: m.mine ? const Color(0xFF1D4ED8) : const Color(0xFF303744), borderRadius: BorderRadius.circular(12)),
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(m.mine ? 'أنت' : m.name, style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
+                              const SizedBox(height: 2),
+                              Text(m.text, style: const TextStyle(color: Colors.white, height: 1.4)),
+                            ]),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
+              child: Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: widget.controller,
+                    style: const TextStyle(color: Colors.white),
+                    maxLength: 240,
+                    decoration: const InputDecoration(counterText: '', hintText: 'اكتب رسالة...', hintStyle: TextStyle(color: Colors.white38), filled: true, fillColor: Color(0xFF202631), border: OutlineInputBorder(borderSide: BorderSide.none, borderRadius: BorderRadius.all(Radius.circular(24))), contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10)),
+                    onSubmitted: (_) => widget.onSend(),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton.filled(onPressed: () { widget.onSend(); setState(() {}); }, icon: const Icon(Icons.send)),
+              ]),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

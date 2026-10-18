@@ -1,4 +1,5 @@
 import 'dart:io';
+import '../widgets/smart_image.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/api_functions.dart';
@@ -114,7 +115,7 @@ class _AdminControlCenterScreenState extends State<AdminControlCenterScreen> {
                 if (imageUrl.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.all(8),
-                    child: Image.network(imageUrl, height: 80, fit: BoxFit.cover),
+                    child: SmartImage(imageUrl, height: 80, fit: BoxFit.cover),
                   ),
                 TextField(controller: campaign, decoration: const InputDecoration(labelText: 'اسم الحملة')),
                 TextField(controller: description, decoration: const InputDecoration(labelText: 'الوصف')),

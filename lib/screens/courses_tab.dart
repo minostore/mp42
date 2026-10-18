@@ -32,7 +32,7 @@ class _CoursesTabState extends State<CoursesTab> {
               child: Row(children: [
                 Text('الكورسات', style: Theme.of(context).textTheme.headlineSmall),
                 const Spacer(),
-                const _AddCourseButton(),
+                const AddCourseButton(),
               ]),
             ),
           const SizedBox(height: 6),
@@ -84,8 +84,8 @@ class _CoursesTabState extends State<CoursesTab> {
 
 
 /// زر «إضافة كورس جديد» — يظهر للمُفهّم والأدمن فقط.
-class _AddCourseButton extends StatelessWidget {
-  const _AddCourseButton();
+class AddCourseButton extends StatelessWidget {
+  const AddCourseButton();
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;

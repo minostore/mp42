@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../services/device_lock_service.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -95,6 +96,15 @@ class _LoginScreenState extends State<LoginScreen> {
       } catch (_) {
         // Auth succeeded. Do not block the user because profile persistence
         // is a separate Firestore operation.
+      }
+
+      // قفل الجهاز الواحد: لو الحساب مسجّل على جهاز آخر نخرّج المستخدم ونعرض السبب
+      final lock = await DeviceLockService.claim();
+      if (lock.locked) {
+        await _auth.signOut();
+        if (!mounted) return;
+        setState(() => _error = lock.message);
+        return;
       }
 
       if (!mounted) return;
