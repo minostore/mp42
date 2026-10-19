@@ -1,3 +1,4 @@
+import '../services/api_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -116,13 +117,17 @@ Stream<String> watchWebRole(String uid) => FirebaseFirestore.instance
     .snapshots()
     .map((d) {
       final m = d.data() ?? const <String, dynamic>{};
-      // مفهّم = role mufhem أو mode/accountType mofahhem (الحقل يختلف بين الحسابات)
-      if (m['role'] == 'mufhem' || m['mode'] == 'mofahhem' || m['accountType'] == 'mofahhem') return 'mufhem';
-      return (m['role'] ?? 'mustafhem').toString();
+      // role هو المرجع (التحويل بين الوضعين يكتبه)، وللحسابات القديمة بلا role نقرأ mode/accountType
+      final r = (m['role'] ?? '').toString();
+      if (r == 'mufhem' || r == 'mustafhem' || r == 'admin') return r;
+      if (m['mode'] == 'mofahhem' || m['accountType'] == 'mofahhem') return 'mufhem';
+      return 'mustafhem';
     });
 
-Future<void> setWebRole(String uid, String role) =>
-    FirebaseFirestore.instance.collection('users').doc(uid).update({'role': role});
+/// تحويل الحساب بين مُفهم ومُستفهم: عبر السيرفر ليُحدَّث role وmode وaccountType معًا (متزامنة).
+Future<void> setWebRole(String uid, String role) async {
+  await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('switchAccountMode').call<Map<String, dynamic>>({'role': role});
+}
 
 /// اختيار تاريخ ووقت.
 Future<DateTime?> pickDateTime(BuildContext context) async {

@@ -33,11 +33,29 @@ class AppTheme {
     final base = ThemeData.light();
     return base.copyWith(
       scaffoldBackgroundColor: AppColors.paper,
-      colorScheme: base.colorScheme.copyWith(
+      // الأساس من لون البرتقالي (لوجو فهمت) بدل البنفسجي الافتراضي لـ Material 3:
+      // الألوان الزاهية → برتقالي زاهي، والباهتة (خلفيات الكروت/الحقول) → برتقالي باهت.
+      colorScheme: ColorScheme.fromSeed(seedColor: AppColors.accent).copyWith(
         primary: AppColors.primary,
         secondary: AppColors.accent,
         surface: AppColors.white,
         error: AppColors.coral,
+        primaryContainer: AppColors.accent,
+        onPrimaryContainer: AppColors.white,
+        secondaryContainer: AppColors.accentLight,
+        onSecondaryContainer: AppColors.ink,
+        tertiary: AppColors.accent,
+        tertiaryContainer: AppColors.accentLight,
+        surfaceTint: Colors.transparent,
+        surfaceContainerLowest: AppColors.white,
+        surfaceContainerLow: AppColors.accentLight,
+        surfaceContainer: AppColors.accentLight,
+        surfaceContainerHigh: AppColors.accentLight,
+        surfaceContainerHighest: AppColors.accentLight,
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: AppColors.accent,
+        foregroundColor: AppColors.white,
       ),
       textTheme: GoogleFonts.tajawalTextTheme(base.textTheme).copyWith(
         headlineSmall: GoogleFonts.elMessiri(

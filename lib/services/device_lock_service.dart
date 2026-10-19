@@ -30,6 +30,9 @@ class DeviceLockService {
     return id;
   }
 
+  /// كود قصير ثابت للجهاز (من معرّفه المحفوظ) يظهر في العلامة المائية لتتبع أي تسريب لجهاز بعينه.
+  static Future<String> shortCode() async => (await _deviceId()).substring(0, 6).toUpperCase();
+
   /// بصمة تسمح بالتعرف على نفس الهاتف بعد إعادة تثبيت التطبيق (يضيع المعرّف المحفوظ).
   static Future<({String fingerprint, String name})> _fingerprint() async {
     try {

@@ -6,6 +6,7 @@ import '../services/firestore_service.dart';
 import '../models/user_profile.dart';
 import '../theme/app_theme.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/public_id_card.dart';
 import 'edit_profile_screen.dart';
 import 'instructor_dashboard_screen.dart';
 
@@ -47,6 +48,7 @@ class AccountTab extends StatelessWidget {
                     const SizedBox(height: 10),
                     Text(name, style: const TextStyle(color: AppColors.paper, fontWeight: FontWeight.w800, fontSize: 17)),
                     Text(email, style: const TextStyle(color: Color(0xFFA9BAC0), fontSize: 12.5)),
+                    const PublicIdCard(margin: EdgeInsets.only(top: 12)),
                     const SizedBox(height: 16),
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(

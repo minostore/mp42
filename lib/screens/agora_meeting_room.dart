@@ -95,6 +95,12 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   final List<Offset> _pendingPoints = [];
   Timer? _flushTimer;
 
+  // المستند المشارَك: صفحة حالية متزامنة + أقلام/تحديد/ممحاة فوقه (نفس أدوات السبورة)
+  int _docPage = 0;
+  int _docPageCount = 1;
+  final Map<int, List<_Stroke>> _pageStash = {};
+  bool _highlight = false;
+
   // الممحاة (مسح جزء من السبورة)
   bool _eraser = false;
   DateTime _lastEraseSend = DateTime.fromMillisecondsSinceEpoch(0);
@@ -173,7 +179,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           if (widget.moderator) {
             for (final u in _modMuted) { _send({'t': 'm', 'to': u, 'v': 1}); }
             if (_boardOpen) _send({'t': 'b', 'o': 1});
-            if (_fileUrl != null) _send({'t': 'f', 'u': _fileUrl, 'n': _fileName, 'k': _fileKind});
+            if (_fileUrl != null) { _send({'t': 'f', 'u': _fileUrl, 'n': _fileName, 'k': _fileKind}); _send({'t': 'g', 'p': _docPage}); }
           }
         },
         onUserOffline: (connection, remoteUid, reason) {
@@ -346,7 +352,8 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           setState(() {
             _Stroke? st = _remoteStrokes[id];
             if (st == null) {
-              st = _Stroke(_boardColors[(m['c'] as int).clamp(0, _boardColors.length - 1)], (m['w'] as num).toDouble());
+              final base = _boardColors[(m['c'] as int).clamp(0, _boardColors.length - 1)];
+              st = _Stroke(m['h'] == 1 ? base.withOpacity(.38) : base, (m['w'] as num).toDouble());
               _remoteStrokes[id] = st;
               _strokes.add(st);
             }
@@ -361,11 +368,19 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           break;
         case 'f': // ملف مشارَك
           if (!mounted) return;
-          setState(() { _fileUrl = m['u'] as String; _fileName = (m['n'] ?? '') as String; _fileKind = (m['k'] ?? 'pdf') as String; });
+          setState(() {
+            final isNew = _fileUrl != m['u'];
+            _fileUrl = m['u'] as String; _fileName = (m['n'] ?? '') as String; _fileKind = (m['k'] ?? 'pdf') as String;
+            if (isNew) { _strokes.clear(); _remoteStrokes.clear(); _pageStash.clear(); _docPage = 0; }
+          });
           break;
         case 'fc': // إغلاق الملف
           if (!mounted) return;
-          setState(() { _fileUrl = null; _fileName = null; _fileKind = null; });
+          setState(() { _fileUrl = null; _fileName = null; _fileKind = null; _strokes.clear(); _remoteStrokes.clear(); _pageStash.clear(); _docPage = 0; });
+          break;
+        case 'g': // تغيير صفحة المستند (من المدير)
+          if (!mounted) return;
+          setState(() => _switchPage((m['p'] as num).toInt()));
           break;
       }
     } catch (_) {}
@@ -397,14 +412,14 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
       pts..add(double.parse(p.dx.toStringAsFixed(3)))..add(double.parse(p.dy.toStringAsFixed(3)));
     }
     _pendingPoints.clear();
-    _send({'t': 's', 'i': _strokeSeq, 'c': _colorIndex, 'w': 3, 'p': pts});
+    _send({'t': 's', 'i': _strokeSeq, 'c': _colorIndex, 'w': _highlight ? 18 : 3, 'h': _highlight ? 1 : 0, 'p': pts});
   }
 
   void _panStart(Offset local, Size size) {
     if (!widget.moderator) return;
     _strokeSeq++;
     final pt = Offset(local.dx / size.width, local.dy / size.height);
-    _current = _Stroke(_boardColors[_colorIndex], 3, [pt]);
+    _current = _Stroke(_highlight ? _boardColors[_colorIndex].withOpacity(.38) : _boardColors[_colorIndex], _highlight ? 18 : 3, [pt]);
     _pendingPoints.add(pt);
     setState(() => _strokes.add(_current!));
     _flushTimer?.cancel();
@@ -562,7 +577,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
       final ctype = kind == 'pdf' ? 'application/pdf' : (ext == 'png' ? 'image/png' : 'image/jpeg');
       final url = await MediaUpload.uploadBytes(kind: 'meeting', bytes: bytes, fileName: safeName, contentType: ctype, channel: widget.channel);
       final shortName = f.name.length > 40 ? f.name.substring(0, 40) : f.name;
-      setState(() { _fileUrl = url; _fileName = shortName; _fileKind = kind; _uploading = false; });
+      setState(() { _fileUrl = url; _fileName = shortName; _fileKind = kind; _uploading = false; _strokes.clear(); _remoteStrokes.clear(); _pageStash.clear(); _docPage = 0; _docPageCount = 1; });
       _send({'t': 'f', 'u': url, 'n': shortName, 'k': kind});
     } catch (e) {
       if (mounted) setState(() => _uploading = false);
@@ -570,8 +585,26 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     }
   }
 
+  /// تبديل صفحة المستند مع حفظ رسومات كل صفحة.
+  void _switchPage(int p) {
+    if (p < 0 || p == _docPage) return;
+    _pageStash[_docPage] = List<_Stroke>.of(_strokes);
+    _strokes..clear()..addAll(_pageStash[p] ?? const <_Stroke>[]);
+    _remoteStrokes.clear();
+    _docPage = p;
+  }
+
+  void _goPage(int p) {
+    if (!widget.moderator) return;
+    final max = _docPageCount - 1;
+    final np = p.clamp(0, max < 0 ? 0 : max);
+    if (np == _docPage) return;
+    setState(() => _switchPage(np));
+    _send({'t': 'g', 'p': np});
+  }
+
   void _closeFile() {
-    setState(() { _fileUrl = null; _fileName = null; _fileKind = null; });
+    setState(() { _fileUrl = null; _fileName = null; _fileKind = null; _strokes.clear(); _remoteStrokes.clear(); _pageStash.clear(); _docPage = 0; _eraser = false; });
     _send({'t': 'fc'});
   }
 
@@ -801,6 +834,30 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     );
   }
 
+  /// أقلام/تحديد/ممحاة/مسح — تُستخدم في السبورة وفي المستند المشارَك (للمدير فقط).
+  List<Widget> _toolButtons() => [
+        for (var i = 0; i < _boardColors.length; i++)
+          GestureDetector(
+            onTap: () => setState(() { _colorIndex = i; _eraser = false; }),
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: 20, height: 20,
+              decoration: BoxDecoration(color: _boardColors[i], shape: BoxShape.circle, border: Border.all(color: (_colorIndex == i && !_eraser) ? Colors.white : Colors.white24, width: 2)),
+            ),
+          ),
+        IconButton(
+          onPressed: () => setState(() { _highlight = !_highlight; _eraser = false; }),
+          icon: Icon(Icons.highlight, color: _highlight ? const Color(0xFFFBBF24) : Colors.white),
+          tooltip: 'تحديد (هايلايتر)',
+        ),
+        IconButton(
+          onPressed: () => setState(() => _eraser = !_eraser),
+          icon: Icon(Icons.cleaning_services, color: _eraser ? const Color(0xFFFBBF24) : Colors.white),
+          tooltip: _eraser ? 'إيقاف الممحاة' : 'ممحاة (تمسح جزءًا محددًا)',
+        ),
+        IconButton(onPressed: _clearBoard, icon: const Icon(Icons.delete_outline, color: Colors.white), tooltip: 'مسح كل الرسومات'),
+      ];
+
   Widget _boardView() {
     return Container(
       color: Colors.white,
@@ -814,21 +871,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
                 const Text('السبورة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
                 const Spacer(),
                 if (widget.moderator) ...[
-                  for (var i = 0; i < _boardColors.length; i++)
-                    GestureDetector(
-                      onTap: () => setState(() => _colorIndex = i),
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
-                        width: 22, height: 22,
-                        decoration: BoxDecoration(color: _boardColors[i], shape: BoxShape.circle, border: Border.all(color: _colorIndex == i ? Colors.white : Colors.white24, width: 2)),
-                      ),
-                    ),
-                  IconButton(
-                    onPressed: () => setState(() => _eraser = !_eraser),
-                    icon: Icon(Icons.cleaning_services, color: _eraser ? const Color(0xFFFBBF24) : Colors.white),
-                    tooltip: _eraser ? 'إيقاف الممحاة' : 'ممحاة (تمسح جزءًا محددًا)',
-                  ),
-                  IconButton(onPressed: _clearBoard, icon: const Icon(Icons.delete_outline, color: Colors.white), tooltip: 'مسح كل السبورة'),
+                  ..._toolButtons(),
                   IconButton(onPressed: _closeBoard, icon: const Icon(Icons.close, color: Colors.white), tooltip: 'إغلاق'),
                 ],
               ],
@@ -861,21 +904,45 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
         children: [
           Container(
             color: const Color(0xFF171B22),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: Row(
-              children: [
-                const Icon(Icons.insert_drive_file, color: Colors.white70, size: 18),
-                const SizedBox(width: 8),
-                Expanded(child: Text(_fileName ?? 'ملف مشارَك', style: const TextStyle(color: Colors.white), overflow: TextOverflow.ellipsis)),
-                if (widget.moderator) IconButton(onPressed: _closeFile, icon: const Icon(Icons.close, color: Colors.white)),
-              ],
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  const Icon(Icons.insert_drive_file, color: Colors.white70, size: 18),
+                  const SizedBox(width: 6),
+                  ConstrainedBox(constraints: const BoxConstraints(maxWidth: 110), child: Text(_fileName ?? 'ملف', style: const TextStyle(color: Colors.white, fontSize: 12), overflow: TextOverflow.ellipsis)),
+                  if (widget.moderator) ..._toolButtons(),
+                  if (widget.moderator) IconButton(onPressed: _closeFile, icon: const Icon(Icons.close, color: Colors.white), tooltip: 'إيقاف عرض الملف'),
+                ],
+              ),
             ),
           ),
           Expanded(
-            child: _fileKind == 'img'
-                ? InteractiveViewer(child: Center(child: SmartImage(url, fit: BoxFit.contain)))
-                : _SharedPdfView(key: ValueKey(url), url: url),
+            child: _SharedDocView(
+              key: ValueKey(url),
+              url: url,
+              isPdf: _fileKind != 'img',
+              page: _docPage,
+              strokes: _strokes,
+              canDraw: widget.moderator,
+              eraser: _eraser,
+              onPageCount: (n) { if (n != _docPageCount) setState(() => _docPageCount = n); },
+              onPanStart: (p, size) => _eraser ? _eraseLocal(p, size) : _panStart(p, size),
+              onPanUpdate: (p, size) => _eraser ? _eraseLocal(p, size) : _panUpdate(p, size),
+              onPanEnd: () { if (!_eraser) _panEnd(); },
+            ),
           ),
+          if (_docPageCount > 1)
+            Container(
+              color: const Color(0xFF171B22),
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                IconButton(onPressed: widget.moderator ? () => _goPage(_docPage - 1) : null, icon: const Icon(Icons.chevron_right, color: Colors.white)),
+                Text('${_docPage + 1} / $_docPageCount', style: const TextStyle(color: Colors.white)),
+                IconButton(onPressed: widget.moderator ? () => _goPage(_docPage + 1) : null, icon: const Icon(Icons.chevron_left, color: Colors.white)),
+              ]),
+            ),
           const SizedBox(height: 90),
         ],
       ),
@@ -977,17 +1044,30 @@ class _BoardPainter extends CustomPainter {
   bool shouldRepaint(covariant _BoardPainter old) => true;
 }
 
-class _SharedPdfView extends StatefulWidget {
+/// عارض مستند مشارَك (PDF: صفحة واحدة كصورة / صورة) + طبقة رسم فوقه تتزامن بين الجميع.
+class _SharedDocView extends StatefulWidget {
   final String url;
-  const _SharedPdfView({super.key, required this.url});
+  final bool isPdf;
+  final int page;
+  final List<_Stroke> strokes;
+  final bool canDraw;
+  final bool eraser;
+  final void Function(int) onPageCount;
+  final void Function(Offset, Size) onPanStart;
+  final void Function(Offset, Size) onPanUpdate;
+  final VoidCallback onPanEnd;
+  const _SharedDocView({super.key, required this.url, required this.isPdf, required this.page, required this.strokes, required this.canDraw, required this.eraser, required this.onPageCount, required this.onPanStart, required this.onPanUpdate, required this.onPanEnd});
 
   @override
-  State<_SharedPdfView> createState() => _SharedPdfViewState();
+  State<_SharedDocView> createState() => _SharedDocViewState();
 }
 
-class _SharedPdfViewState extends State<_SharedPdfView> {
-  PdfControllerPinch? _controller;
+class _SharedDocViewState extends State<_SharedDocView> {
+  PdfDocument? _doc;
+  Uint8List? _image; // الصفحة الحالية كصورة
+  int _renderedPage = -1;
   String? _error;
+  bool _busy = false;
 
   @override
   void initState() {
@@ -999,26 +1079,69 @@ class _SharedPdfViewState extends State<_SharedPdfView> {
     try {
       final r = await http.get(Uri.parse(widget.url));
       if (r.statusCode != 200) throw StateError('HTTP ${r.statusCode}');
-      final controller = PdfControllerPinch(document: PdfDocument.openData(r.bodyBytes));
-      if (!mounted) { controller.dispose(); return; }
-      setState(() => _controller = controller);
+      if (!widget.isPdf) {
+        if (mounted) setState(() => _image = r.bodyBytes);
+        widget.onPageCount(1);
+        return;
+      }
+      final doc = await PdfDocument.openData(r.bodyBytes);
+      if (!mounted) { await doc.close(); return; }
+      _doc = doc;
+      widget.onPageCount(doc.pagesCount);
+      await _render(widget.page);
     } catch (e) {
       if (mounted) setState(() => _error = 'تعذر عرض الملف: $e');
     }
   }
 
+  Future<void> _render(int index) async {
+    final doc = _doc;
+    if (doc == null || _busy) return;
+    _busy = true;
+    try {
+      final n = index.clamp(0, doc.pagesCount - 1);
+      final page = await doc.getPage(n + 1);
+      final img = await page.render(width: page.width * 2, height: page.height * 2, format: PdfPageImageFormat.jpeg, backgroundColor: '#FFFFFF');
+      await page.close();
+      if (mounted && img != null) setState(() { _image = img.bytes; _renderedPage = index; });
+    } catch (e) {
+      if (mounted) setState(() => _error = 'تعذر عرض الصفحة: $e');
+    } finally {
+      _busy = false;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _SharedDocView old) {
+    super.didUpdateWidget(old);
+    if (widget.isPdf && widget.page != _renderedPage && _doc != null) _render(widget.page);
+  }
+
   @override
   void dispose() {
-    _controller?.dispose();
+    _doc?.close();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     if (_error != null) return Center(child: Text(_error!, style: const TextStyle(color: Colors.white)));
-    final c = _controller;
-    if (c == null) return const Center(child: CircularProgressIndicator());
-    return PdfViewPinch(controller: c);
+    final img = _image;
+    if (img == null) return const Center(child: CircularProgressIndicator());
+    return LayoutBuilder(
+      builder: (context, c) {
+        final size = Size(c.maxWidth, c.maxHeight);
+        return GestureDetector(
+          onPanStart: widget.canDraw ? (d) => widget.onPanStart(d.localPosition, size) : null,
+          onPanUpdate: widget.canDraw ? (d) => widget.onPanUpdate(d.localPosition, size) : null,
+          onPanEnd: widget.canDraw ? (_) => widget.onPanEnd() : null,
+          child: Stack(fit: StackFit.expand, children: [
+            ColoredBox(color: Colors.white, child: Image.memory(img, fit: BoxFit.contain, gaplessPlayback: true)),
+            CustomPaint(painter: _BoardPainter(widget.strokes)),
+          ]),
+        );
+      },
+    );
   }
 }
 

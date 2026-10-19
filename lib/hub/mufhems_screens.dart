@@ -47,6 +47,7 @@ class _MufhemsScreenState extends State<MufhemsScreen> {
                 final m = d.data();
                 // كل المفهمين يظهرون (اعتماد الصورة لا يخفي الحساب)؛ المحظورون فقط يُستثنون
                 if (m['status'] == 'banned' || m['isBanned'] == true) return false;
+                if (m['role'] == 'mustafhem') return false; // حوّل حسابه لمستفهم
                 if (_q.isEmpty) return true;
                 return '${m['fullName'] ?? m['name']} ${m['specialization']}'.contains(_q);
               }).toList();

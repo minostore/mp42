@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:excel/excel.dart' as xl;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../services/api_functions.dart';
@@ -179,35 +181,148 @@ class GroupStudentsTab extends StatelessWidget {
   final GroupRole role;
   const GroupStudentsTab({super.key, required this.groupId, required this.role});
 
+  /// يستخرج الأرقام التعريفية (8 أرقام/حروف) من أي نص: أرقام ملصوقة أو محتوى ملف.
+  static List<String> _extractIds(String text) {
+    final seen = <String>{};
+    for (final t in text.split(RegExp(r'[^0-9A-Za-z]+'))) {
+      if (t.length == 8) seen.add(t.toLowerCase());
+    }
+    return seen.toList();
+  }
+
   Future<void> _invite(BuildContext context) async {
-    final c = TextEditingController();
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Padding(padding: EdgeInsets.all(14), child: Text('إضافة طلاب', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800))),
+          ListTile(leading: const Icon(Icons.person_add_alt_1), title: const Text('دعوة طالب برقمه التعريفي'), onTap: () { Navigator.pop(ctx); _enterIds(context, multi: false); }),
+          ListTile(leading: const Icon(Icons.content_paste), title: const Text('لصق عدة أرقام تعريفية'), subtitle: const Text('الصق رسالة فيها أرقام كذا طالب'), onTap: () { Navigator.pop(ctx); _enterIds(context, multi: true); }),
+          ListTile(leading: const Icon(Icons.table_chart_outlined), title: const Text('رفع ملف Excel / CSV'), subtitle: const Text('ملف فيه الأرقام التعريفية'), onTap: () { Navigator.pop(ctx); _fromFile(context); }),
+          ListTile(leading: const Icon(Icons.link), title: const Text('رابط المجموعة وطلبات الانضمام'), subtitle: const Text('الطلاب يرسلون طلبًا وأنت تقبل أو ترفض'), onTap: () { Navigator.pop(ctx); _linkAndRequests(context); }),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _enterIds(BuildContext context, {required bool multi, String initial = ''}) async {
+    final c = TextEditingController(text: initial);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('إضافة طالب'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('اكتب الرقم التعريفي للطالب (8 أرقام/حروف إنجليزية) وسيصله طلب انضمام يقبله ليتضاف.', style: TextStyle(height: 1.6)),
-          const SizedBox(height: 10),
-          TextField(
-            controller: c,
-            maxLength: 8,
-            textDirection: TextDirection.ltr,
-            decoration: const InputDecoration(labelText: 'الرقم التعريفي'),
-          ),
-        ]),
+        title: Text(multi ? 'الأرقام التعريفية' : 'الرقم التعريفي'),
+        content: TextField(
+          controller: c,
+          minLines: multi ? 4 : 1,
+          maxLines: multi ? 8 : 1,
+          maxLength: multi ? null : 8,
+          textDirection: TextDirection.ltr,
+          decoration: InputDecoration(labelText: multi ? 'الصق الرسالة أو الأرقام (8 أرقام/حروف لكل طالب)' : 'الرقم التعريفي (8 أرقام/حروف)'),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('إرسال الدعوة')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('متابعة')),
         ],
       ),
     );
     if (ok != true || !context.mounted) return;
+    await _confirmAndSend(context, _extractIds(c.text), multi: multi);
+  }
+
+  Future<void> _fromFile(BuildContext context) async {
+    final pick = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['xlsx', 'csv', 'txt'], withData: true);
+    final f = pick?.files.single;
+    if (f == null || f.bytes == null || !context.mounted) return;
+    var text = '';
     try {
-      final r = await _fn.httpsCallable('sendGroupInvite').call<Map<String, dynamic>>({'groupId': groupId, 'publicId': c.text.trim().toLowerCase()});
-      _snack(context, 'تم إرسال الدعوة إلى ${r.data['toName'] ?? 'الطالب'}');
+      if ((f.extension ?? '').toLowerCase() == 'xlsx') {
+        final book = xl.Excel.decodeBytes(f.bytes!);
+        final sb = StringBuffer();
+        for (final sheet in book.tables.values) {
+          for (final row in sheet.rows) {
+            for (final cell in row) {
+              final v = cell?.value;
+              if (v != null) sb.writeln(v.toString());
+            }
+          }
+        }
+        text = sb.toString();
+      } else {
+        text = String.fromCharCodes(f.bytes!);
+      }
+    } catch (e) {
+      _snack(context, 'تعذر قراءة الملف');
+      return;
+    }
+    final ids = _extractIds(text);
+    if (ids.isEmpty) {
+      _snack(context, 'لم أجد أرقامًا تعريفية في الملف');
+      return;
+    }
+    await _confirmAndSend(context, ids, multi: true);
+  }
+
+  /// يعرض أسماء أصحاب الأرقام للتأكيد أو التعديل قبل إرسال الدعوات.
+  Future<void> _confirmAndSend(BuildContext context, List<String> ids, {required bool multi}) async {
+    if (ids.isEmpty) {
+      _snack(context, 'اكتب رقمًا تعريفيًا واحدًا على الأقل');
+      return;
+    }
+    List<dynamic> items;
+    try {
+      final r = await _fn.httpsCallable('resolveGroupInvitees').call<Map<String, dynamic>>({'groupId': groupId, 'publicIds': ids});
+      items = (r.data['items'] as List?) ?? const [];
     } catch (e) {
       _snack(context, _msg(e));
+      return;
     }
+    if (!context.mounted) return;
+    final valid = items.where((e) => e is Map && e['found'] == true && e['alreadyMember'] != true).map((e) => (e as Map)['publicId'].toString()).toList();
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(valid.isEmpty ? 'لا يوجد من يمكن دعوته' : 'هل أنت متأكد من دعوة ${valid.length == 1 ? 'هذا الطالب' : 'هؤلاء الطلاب'}؟'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(shrinkWrap: true, children: [
+            for (final e in items)
+              if (e is Map)
+                ListTile(
+                  dense: true,
+                  leading: Icon(e['found'] != true ? Icons.error_outline : (e['alreadyMember'] == true ? Icons.info_outline : Icons.check_circle), color: e['found'] != true ? Colors.red : (e['alreadyMember'] == true ? Colors.orange : Colors.green)),
+                  title: Text(e['found'] == true ? (e['name'] ?? '').toString() : (e['reason'] ?? 'غير موجود').toString(), style: const TextStyle(fontWeight: FontWeight.w700)),
+                  subtitle: Text('${e['publicId']}${e['alreadyMember'] == true ? ' • عضو بالفعل' : ''}', textDirection: TextDirection.ltr, textAlign: TextAlign.start),
+                ),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, 'cancel'), child: const Text('إلغاء')),
+          TextButton(onPressed: () => Navigator.pop(ctx, 'edit'), child: const Text('تعديل الأرقام')),
+          if (valid.isNotEmpty) FilledButton(onPressed: () => Navigator.pop(ctx, 'send'), child: Text('تأكيد وإرسال (${valid.length})')),
+        ],
+      ),
+    );
+    if (!context.mounted) return;
+    if (choice == 'edit') {
+      await _enterIds(context, multi: true, initial: ids.join('\n'));
+    } else if (choice == 'send') {
+      try {
+        final r = await _fn.httpsCallable('sendGroupInvites').call<Map<String, dynamic>>({'groupId': groupId, 'publicIds': valid});
+        final sent = (r.data['sent'] as List?)?.length ?? 0;
+        final skipped = (r.data['skipped'] as List?)?.length ?? 0;
+        _snack(context, 'تم إرسال $sent دعوة${skipped > 0 ? ' • تخطي $skipped' : ''}');
+      } catch (e) {
+        _snack(context, _msg(e));
+      }
+    }
+  }
+
+  Future<void> _linkAndRequests(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => _JoinLinkSheet(groupId: groupId),
+    );
   }
 
   Future<void> _editor(BuildContext context, String memberUid, String name, Map<String, dynamic> m) async {
@@ -428,6 +543,92 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
               TextButton.icon(onPressed: () => setState(() => q.options.add(TextEditingController())), icon: const Icon(Icons.add), label: const Text('إضافة اختيار')),
           ],
         ]),
+      ),
+    );
+  }
+}
+
+
+/// رابط المجموعة + طلبات الانضمام (قبول/رفض).
+class _JoinLinkSheet extends StatefulWidget {
+  final String groupId;
+  const _JoinLinkSheet({required this.groupId});
+  @override
+  State<_JoinLinkSheet> createState() => _JoinLinkSheetState();
+}
+
+class _JoinLinkSheetState extends State<_JoinLinkSheet> {
+  String? _url;
+  List<Map<String, dynamic>> _reqs = [];
+  bool _loading = true;
+  String? _err;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final l = await _fn.httpsCallable('getGroupJoinLink').call<Map<String, dynamic>>({'groupId': widget.groupId});
+      final r = await _fn.httpsCallable('listGroupJoinRequests').call<Map<String, dynamic>>({'groupId': widget.groupId});
+      _url = (l.data['url'] ?? '').toString();
+      _reqs = ((r.data['items'] as List?) ?? const []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (e) {
+      _err = _msg(e);
+    }
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _respond(Map<String, dynamic> r, bool accept) async {
+    try {
+      await _fn.httpsCallable('respondJoinRequest').call<Map<String, dynamic>>({'groupId': widget.groupId, 'uid': r['uid'], 'accept': accept});
+      setState(() => _reqs.removeWhere((x) => x['uid'] == r['uid']));
+      _snack(context, accept ? 'تم قبول الطالب' : 'تم رفض الطلب');
+    } catch (e) {
+      _snack(context, _msg(e));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: _loading
+            ? const SizedBox(height: 160, child: Center(child: CircularProgressIndicator()))
+            : _err != null
+                ? Text(_err!)
+                : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('رابط المجموعة', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 6),
+                    const Text('أرسل الرابط للطلاب، يفتحونه ويرسلون طلب انضمام تقبله أو ترفضه هنا.', style: TextStyle(height: 1.5)),
+                    const SizedBox(height: 8),
+                    Row(children: [
+                      Expanded(child: SelectableText(_url ?? '', textDirection: TextDirection.ltr, style: const TextStyle(fontWeight: FontWeight.w700))),
+                      IconButton(icon: const Icon(Icons.copy), onPressed: () { Clipboard.setData(ClipboardData(text: _url ?? '')); _snack(context, 'تم نسخ الرابط'); }),
+                    ]),
+                    const Divider(height: 24),
+                    Row(children: [
+                      const Expanded(child: Text('طلبات الانضمام', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
+                      IconButton(icon: const Icon(Icons.refresh), onPressed: () { setState(() => _loading = true); _load(); }),
+                    ]),
+                    if (_reqs.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('لا توجد طلبات انضمام حاليًا')),
+                    Flexible(
+                      child: ListView(shrinkWrap: true, children: [
+                        for (final r in _reqs)
+                          ListTile(
+                            title: Text('${r['name'] ?? 'طالب'}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                            subtitle: Text('الرقم التعريفي: ${r['publicId'] ?? ''}', textDirection: TextDirection.ltr, textAlign: TextAlign.start),
+                            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                              IconButton(icon: const Icon(Icons.check_circle, color: Colors.green), onPressed: () => _respond(r, true)),
+                              IconButton(icon: const Icon(Icons.cancel, color: Colors.red), onPressed: () => _respond(r, false)),
+                            ]),
+                          ),
+                      ]),
+                    ),
+                  ]),
       ),
     );
   }

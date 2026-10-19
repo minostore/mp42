@@ -5,19 +5,23 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
+import 'device_lock_service.dart';
+
 /// هوية المشاهد الحالية (IP + رقم الهاتف + البريد) لعرضها كعلامة مائية متحركة
 /// فوق الفيديوهات والجلسات المسجلة وملفات الـ PDF لردع التسريب.
 class ViewerIdentity {
   final String ip;
   final String phone;
   final String email;
-  const ViewerIdentity({this.ip = '', this.phone = '', this.email = ''});
+  final String device;
+  const ViewerIdentity({this.ip = '', this.phone = '', this.email = '', this.device = ''});
 
   /// الأسطر التي تُعرض (تُتجاهل الفارغة).
   List<String> get lines => [
         if (ip.isNotEmpty) 'IP: $ip',
         if (phone.isNotEmpty) phone,
         if (email.isNotEmpty) email,
+        if (device.isNotEmpty) 'ID: $device',
       ];
 
   static ViewerIdentity? _cached;
@@ -48,7 +52,9 @@ class ViewerIdentity {
       }
     }
     final ip = await _publicIp();
-    final id = ViewerIdentity(ip: ip, phone: phone, email: email);
+    var device = '';
+    try { device = await DeviceLockService.shortCode(); } catch (_) {}
+    final id = ViewerIdentity(ip: ip, phone: phone, email: email, device: device);
     _cached = id;
     _cachedAt = DateTime.now();
     return id;

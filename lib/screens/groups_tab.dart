@@ -1,3 +1,4 @@
+import '../widgets/public_id_card.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -190,6 +191,7 @@ class _GroupsTabState extends State<GroupsTab> {
                     Expanded(child: TabBarView(children: [
                     _list(_owned, 'لم تنشئ أي مجموعة بعد.\nاضغط «إنشاء مجموعة جديدة» للبدء.'),
                     Column(children: [
+                      const PublicIdCard(),
                       _invites(),
                       Expanded(child: _list(_joined, 'لم تنضم لأي مجموعة بعد.\nعندما يدعوك صاحب مجموعة برقمك التعريفي ستظهر الدعوة هنا، وتنضم بعد قبولها.')),
                     ]),
