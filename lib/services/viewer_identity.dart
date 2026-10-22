@@ -21,7 +21,7 @@ class ViewerIdentity {
         if (ip.isNotEmpty) 'IP: $ip',
         if (phone.isNotEmpty) phone,
         if (email.isNotEmpty) email,
-        if (device.isNotEmpty) 'ID: $device',
+        if (device.isNotEmpty) 'جهاز: $device',
       ];
 
   static ViewerIdentity? _cached;
@@ -63,8 +63,9 @@ class ViewerIdentity {
   static Future<String> _publicIp() async {
     // نجرّب أكثر من خدمة؛ لو فشلت كلها نكمل بدون IP بدل ما نعطّل التشغيل.
     final sources = <String, String? Function(String)>{
-      'https://api.ipify.org?format=json': (b) => (jsonDecode(b) as Map)['ip']?.toString(),
+      // api64 يرجّع عنوان IPv6 الخاص بالجهاز لو شبكته تدعمه (أقرب لعنوان الجهاز الفعلي من IPv4 المشترك)
       'https://api64.ipify.org?format=json': (b) => (jsonDecode(b) as Map)['ip']?.toString(),
+      'https://api.ipify.org?format=json': (b) => (jsonDecode(b) as Map)['ip']?.toString(),
       'https://ipwho.is/': (b) => (jsonDecode(b) as Map)['ip']?.toString(),
     };
     for (final e in sources.entries) {

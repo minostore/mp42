@@ -90,3 +90,57 @@ class FahmtLogoBadge extends StatelessWidget {
     );
   }
 }
+
+/// علامة مائية ثابتة مكررة على الصفحة (للـ PDF): الاسم + الرقم التعريفي + الهاتف + البريد.
+class TiledWatermark extends StatefulWidget {
+  /// «الاسم • الرقم التعريفي» القادم من الخادم.
+  final String nameAndId;
+  const TiledWatermark({super.key, required this.nameAndId});
+
+  @override
+  State<TiledWatermark> createState() => _TiledWatermarkState();
+}
+
+class _TiledWatermarkState extends State<TiledWatermark> {
+  ViewerIdentity _id = const ViewerIdentity();
+
+  @override
+  void initState() {
+    super.initState();
+    ViewerIdentity.load().then((v) {
+      if (mounted) setState(() => _id = v);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = [
+      if (widget.nameAndId.trim().isNotEmpty) widget.nameAndId.trim(),
+      if (_id.phone.isNotEmpty) _id.phone,
+      if (_id.email.isNotEmpty) _id.email,
+    ];
+    if (lines.isEmpty) return const SizedBox.shrink();
+    const style = TextStyle(color: Color(0x1F000000), fontSize: 12, fontWeight: FontWeight.w700, height: 1.3);
+    return IgnorePointer(
+      child: LayoutBuilder(builder: (context, c) {
+        const tileW = 210.0, tileH = 120.0;
+        final cols = (c.maxWidth / tileW).ceil().clamp(1, 6);
+        final rows = (c.maxHeight / tileH).ceil().clamp(1, 12);
+        return ClipRect(
+          child: Stack(children: [
+            for (var r = 0; r < rows; r++)
+              for (var k = 0; k < cols; k++)
+                Positioned(
+                  left: k * tileW + (r.isOdd ? tileW / 2 : 0) - 20,
+                  top: r * tileH + 20,
+                  child: Transform.rotate(
+                    angle: -0.45,
+                    child: Directionality(textDirection: TextDirection.ltr, child: Text(lines.join('\n'), style: style, textAlign: TextAlign.center)),
+                  ),
+                ),
+          ]),
+        );
+      }),
+    );
+  }
+}

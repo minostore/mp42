@@ -40,6 +40,10 @@ class AppError {
 /// الاستخدام:
 ///   try { ... } catch (e, st) { ErrorCenter.instance.report(e, where: 'شراء كورس', stack: st); }
 ///   أو:  await ErrorCenter.instance.guard(() => service.doSomething(), where: 'اسم العملية');
+/// بطاقات الأخطاء الحمراء مخفية عن المستخدم. الأخطاء تُسجَّل في الـ console فقط.
+/// اجعلها true مؤقتًا أثناء التطوير لو احتجت رؤية الأسباب والحلول على الشاشة.
+const bool kShowErrorCards = false;
+
 class ErrorCenter {
   ErrorCenter._();
   static final ErrorCenter instance = ErrorCenter._();
@@ -86,7 +90,7 @@ class ErrorCenter {
     if (last == null || DateTime.now().difference(last) > const Duration(seconds: 4)) {
       _recent[key] = DateTime.now();
       debugPrint('[خطأ${where != null ? ' — $where' : ''}] ${err.title}\nالسبب: ${err.cause}\nالحل: ${err.fix}\n${err.technical}');
-      errors.value = [err, ...errors.value].take(3).toList();
+      if (kShowErrorCards) errors.value = [err, ...errors.value].take(3).toList();
     }
     return err;
   }
@@ -94,7 +98,7 @@ class ErrorCenter {
   /// يعرض خطأً جاهزًا (عنوان + سبب + حل) فورًا بدون تحويله.
   AppError push(AppError err) {
     debugPrint('[خطأ${err.where != null ? ' — ${err.where}' : ''}] ${err.title}\nالسبب: ${err.cause}\nالحل: ${err.fix}\n${err.technical}');
-    errors.value = [err, ...errors.value].take(3).toList();
+    if (kShowErrorCards) errors.value = [err, ...errors.value].take(3).toList();
     return err;
   }
 
@@ -106,7 +110,7 @@ class ErrorCenter {
     final last = _recent[key];
     if (last == null || DateTime.now().difference(last) > const Duration(seconds: 4)) {
       _recent[key] = DateTime.now();
-      errors.value = [err, ...errors.value].take(3).toList();
+      if (kShowErrorCards) errors.value = [err, ...errors.value].take(3).toList();
     }
   }
 

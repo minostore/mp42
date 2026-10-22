@@ -446,13 +446,9 @@ class _PdfPageViewState extends State<_PdfPageView> {
                       ],
                     ),
                   ),
-                  IgnorePointer(
-                    child: Center(
-                      child: Transform.rotate(angle: -0.5, child: Text(widget.watermark, style: const TextStyle(color: Color(0x14000000), fontSize: 26, fontWeight: FontWeight.bold))),
-                    ),
-                  ),
-                  // علامة مائية متحركة: IP + الهاتف + البريد (تتغير أماكنها)
-                  const Positioned.fill(child: MovingWatermark(color: Color(0x55000000), fontSize: 9, copies: 4)),
+                  // علامة مائية ثابتة على كل صفحة: الاسم + الرقم التعريفي + الهاتف + البريد، وأيقونة فهمت أعلى الصفحة
+                  Positioned.fill(child: TiledWatermark(nameAndId: widget.watermark)),
+                  const Positioned(top: 8, right: 10, child: FahmtLogoBadge(size: 28)),
                 ],
               ),
       );
