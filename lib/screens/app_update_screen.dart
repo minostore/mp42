@@ -56,7 +56,11 @@ class _AppUpdateScreenState extends State<AppUpdateScreen> {
             setState(() => _progress = int.tryParse(e.value ?? '0') ?? 0);
             break;
           case OtaStatus.INSTALLING:
-            setState(() { _progress = 100; _busy = false; });
+            setState(() {
+              _progress = 100;
+              _busy = false;
+              _error = 'اكتمل التنزيل. اضغط «تثبيت» في نافذة النظام. لو ظهر «لم يتم تثبيت التطبيق» أو لم تظهر نافذة، فالنسخة الجديدة موقّعة بمفتاح مختلف: احذف التطبيق وثبّت النسخة الجديدة مرة واحدة، وبعدها التحديثات تعمل من داخل التطبيق.';
+            });
             break;
           case OtaStatus.ALREADY_RUNNING_ERROR:
             break;
