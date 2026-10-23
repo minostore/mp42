@@ -1,3 +1,4 @@
+import '../widgets/post_session_prompt.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -40,7 +41,36 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
   bool _showControls = true;
   Timer? _hideTimer;
 
-  String get _uid => FirebaseAuth.instance.currentUser!.uid;
+  String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
+
+  bool _endShown = false;
+
+  /// عند انتهاء الدرس: رسالة «استفهم الآن» + «الدرس التالي».
+  void _maybeShowEnd(VideoPlayerController c) {
+    if (_endShown || !mounted) return;
+    final v = c.value;
+    if (v.duration.inMilliseconds <= 0 || v.isPlaying) return;
+    if (v.position.inMilliseconds < v.duration.inMilliseconds - 500) return;
+    _endShown = true;
+    _showEndPrompt();
+  }
+
+  Future<void> _showEndPrompt() async {
+    Lesson? next;
+    try {
+      final lessons = (await _firestore.getLessons(widget.courseId)).toList()..sort((a, b) => a.order.compareTo(b.order));
+      final i = lessons.indexWhere((l) => l.id == widget.lessonId);
+      if (i >= 0 && i + 1 < lessons.length) next = lessons[i + 1];
+    } catch (_) {}
+    if (!mounted) return;
+    final r = await showAskNowPrompt(context, secondLabel: 'الدرس التالي', secondEnabled: next != null);
+    if (!mounted) return;
+    if (r == 'ask') {
+      context.push('/requests/new');
+    } else if (r == 'second' && next != null) {
+      context.pushReplacement('/course/${widget.courseId}/lesson/${next.id}');
+    }
+  }
 
   @override
   void initState() {
@@ -95,6 +125,8 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
       await controller.setPlaybackSpeed(_speed);
       if (await _isPreviewLesson()) {
         controller.addListener(_enforcePreviewLimit);
+      } else {
+        controller.addListener(() => _maybeShowEnd(controller));
       }
       await controller.play();
 

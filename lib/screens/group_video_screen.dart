@@ -1,3 +1,5 @@
+import 'package:go_router/go_router.dart';
+import '../widgets/post_session_prompt.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -34,6 +36,19 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
   bool _showControls = true;
   Timer? _hideTimer;
   List<Map<String, dynamic>> _chatLog = const [];
+  bool _endShown = false;
+
+  Future<void> _showEndPrompt() async {
+    if (_fullscreen) await _toggleFullscreen();
+    if (!mounted) return;
+    final r = await showAskNowPrompt(context, secondLabel: 'إغلاق');
+    if (!mounted) return;
+    if (r == 'ask') {
+      context.push('/requests/new');
+    } else if (r == 'second') {
+      Navigator.of(context).maybePop();
+    }
+  }
 
   @override
   void initState() {
@@ -48,10 +63,20 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
       final svc = GroupsService();
       final m = widget.kind == 'admin'
           ? await svc.getAdminRecordingMedia(widget.itemId)
-          : await svc.getMedia(groupId: widget.groupId, kind: widget.kind, id: widget.itemId);
+          : widget.kind == 'session'
+              ? await svc.getSessionRecordingMedia(widget.itemId)
+              : await svc.getMedia(groupId: widget.groupId, kind: widget.kind, id: widget.itemId);
       final c = VideoPlayerController.networkUrl(Uri.parse(m.url));
       await c.initialize();
-      c.addListener(() { if (mounted) setState(() {}); });
+      c.addListener(() {
+        if (!mounted) return;
+        setState(() {});
+        final v = c.value;
+        if (!_endShown && v.duration.inMilliseconds > 0 && !v.isPlaying && v.position.inMilliseconds >= v.duration.inMilliseconds - 500) {
+          _endShown = true;
+          _showEndPrompt();
+        }
+      });
       await c.play();
       if (!mounted) { await c.dispose(); return; }
       setState(() { _media = m; _c = c; });

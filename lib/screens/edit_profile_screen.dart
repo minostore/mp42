@@ -47,7 +47,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
     setState(() => _saving = true);
     try {
-      final user = FirebaseAuth.instance.currentUser!;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) { if (mounted) setState(() => _saving = false); return; }
       await FirestoreService().updateUserProfile(uid: user.uid, name: name);
       if (_picked != null) {
         // الصورة لا تُنشر مباشرة: تُحفظ كطلب مراجعة، وتبقى الصورة الحالية/الافتراضية حتى تقبلها الإدارة
@@ -93,7 +94,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ),
           ),
           StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance.collection('users').doc(FirebaseAuth.instance.currentUser!.uid).snapshots(),
+            stream: FirebaseFirestore.instance.collection('users').doc(FirebaseAuth.instance.currentUser?.uid ?? '_').snapshots(),
             builder: (_, s) => PhotoStatusBanner(user: s.data?.data()),
           ),
           const SizedBox(height: 26),

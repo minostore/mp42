@@ -1,3 +1,4 @@
+import 'course_validity.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -124,6 +125,8 @@ class _PurchaseSheetState extends State<_PurchaseSheet> {
                   Text('شراء: ${widget.course.title}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 4),
                   Text(price <= 0 ? 'مجاني' : '${price.toStringAsFixed(price % 1 == 0 ? 0 : 2)} جنيه', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 4),
+                  Text('صلاحية الكورس: ${courseValidityLabel(widget.course.raw)}', style: const TextStyle(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 12),
                   RadioListTile<String>(
                     contentPadding: EdgeInsets.zero,

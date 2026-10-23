@@ -198,7 +198,7 @@ class _AdminControlCenterScreenState extends State<AdminControlCenterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = [_meetings(), _courses(), _mufahems(), _users(), _notifications(), _admins()];
+    final pages = [_meetings(), _courses(), _mufahems(), _users(), _notifications(), _admins(), _sessionRecordings()];
     return Scaffold(
       appBar: AppBar(
         title: const Text('مركز الاعتماد الموحد'),
@@ -216,12 +216,76 @@ class _AdminControlCenterScreenState extends State<AdminControlCenterScreen> {
                 _tab('المستخدمون', 3),
                 _tab('الإشعارات', 4),
                 _tab('حسابات الأدمن', 5),
+                _tab('تسجيلات الاستفهام والشكاوى', 6),
               ],
             ),
           ),
           Expanded(child: pages[tab]),
         ],
       ),
+    );
+  }
+
+  /// تسجيلات جلسات الاستفهام (للإدارة فقط) + الشكاوى: مشاهدة، وإنهاء الرد على الشكوى.
+  Widget _sessionRecordings() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: db.collection('sessionRecordings').snapshots(),
+      builder: (context, snapshot) {
+        final docs = [...(snapshot.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[])];
+        docs.sort((a, b) {
+          final x = a.data()['createdAt'], y = b.data()['createdAt'];
+          final xm = x is Timestamp ? x.millisecondsSinceEpoch : 0;
+          final ym = y is Timestamp ? y.millisecondsSinceEpoch : 0;
+          return ym.compareTo(xm);
+        });
+        if (docs.isEmpty) return const Center(child: Text('لا توجد تسجيلات'));
+        return ListView(
+          children: docs.map((doc) {
+            final d = doc.data();
+            final exp = (d['adminExpiresAt'] is num) ? (d['adminExpiresAt'] as num).toInt() : 0;
+            final hours = ((exp - DateTime.now().millisecondsSinceEpoch) / 3600000).round();
+            final left = hours <= 0 ? 'ينتهي الآن' : (hours >= 24 ? 'يُحذف بعد ${(hours / 24).round()} يوم' : 'يُحذف بعد $hours ساعة');
+            final ready = d['status'] == 'ready';
+            final complaint = d['complaint'] == true;
+            return Card(
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    Expanded(child: Text((d['title'] ?? doc.id).toString(), style: const TextStyle(fontWeight: FontWeight.w800))),
+                    if (complaint) const Chip(label: Text('شكوى مفتوحة'), backgroundColor: Color(0xFFFFEDD5)),
+                  ]),
+                  Text('${ready ? 'جاهز' : 'فشل: ${d['error'] ?? ''}'} • $left${(d['studentSaveDays'] ?? 0) > 0 ? ' • محفوظ عند المستفهم ${d['studentSaveDays']} يوم' : ''}', style: const TextStyle(fontSize: 12.5)),
+                  if (complaint && (d['complaintText'] ?? '').toString().isNotEmpty)
+                    Padding(padding: const EdgeInsets.only(top: 6), child: Text('نص الشكوى: ${d['complaintText']}', style: const TextStyle(color: Color(0xFFB91C1C)))),
+                  const SizedBox(height: 6),
+                  Wrap(spacing: 8, children: [
+                    if (ready)
+                      FilledButton.icon(
+                        onPressed: () => GoRouter.of(context).push('/group-video-session/${doc.id}'),
+                        icon: const Icon(Icons.play_arrow),
+                        label: const Text('مشاهدة'),
+                      ),
+                    if (complaint)
+                      OutlinedButton(
+                        onPressed: () async {
+                          try {
+                            await fn.httpsCallable('adminResolveSessionComplaint').call({'requestId': doc.id});
+                            if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إنهاء الرد، سيُحذف التسجيل خلال يوم')));
+                          } catch (e) {
+                            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر: $e')));
+                          }
+                        },
+                        child: const Text('تم الرد على الشكوى'),
+                      ),
+                  ]),
+                ]),
+              ),
+            );
+          }).toList(),
+        );
+      },
     );
   }
 

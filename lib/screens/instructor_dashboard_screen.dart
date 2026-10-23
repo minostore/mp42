@@ -28,7 +28,7 @@ class InstructorDashboardScreen extends StatelessWidget {
         const Text('كورساتي', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
         const SizedBox(height: 8),
         StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirestoreService().watchMyCourses(FirebaseAuth.instance.currentUser!.uid),
+          stream: FirestoreService().watchMyCourses(FirebaseAuth.instance.currentUser?.uid ?? ''),
           builder: (context, snap) {
             if (!snap.hasData) return const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()));
             final docs = snap.data!.docs;
@@ -85,9 +85,11 @@ class _CreateCourseScreenState extends State<CreateCourseScreen> {
     }
     setState(() => _loading = true);
     try {
-      final user = FirebaseAuth.instance.currentUser!;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) { if (mounted) setState(() => _loading = false); return; }
       final profile = await FirestoreService().getUserProfile(user.uid);
-      final name = profile?.name.isNotEmpty == true ? profile!.name : (user.displayName ?? 'المُفهّم');
+      final pName = profile?.name ?? '';
+      final name = pName.isNotEmpty ? pName : (user.displayName ?? 'المُفهّم');
       await FirestoreService().createPendingCourse(
         uid: user.uid,
         instructorName: name,

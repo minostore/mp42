@@ -1,3 +1,6 @@
+import '../services/api_functions.dart';
+import 'package:go_router/go_router.dart';
+import '../widgets/post_session_prompt.dart';
 import '../widgets/moving_watermark.dart';
 import 'dart:async';
 import '../widgets/smart_image.dart';
@@ -31,6 +34,8 @@ class AgoraMeetingRoom extends StatefulWidget {
   // الجلسة مسجّلة؟ لو نعم يُحفظ سجل الشات مع التسجيل عند إنهاء الاجتماع للجميع
   final bool record;
   final Future<void> Function(List<Map<String, dynamic>> messages)? onSaveChat;
+  // جلسة استفهام (محاضرة): تُسجَّل تلقائيًا للإدارة، ويُطلب من الطرفين اختيار حفظها
+  final String? requestId;
 
   const AgoraMeetingRoom({
     super.key,
@@ -45,6 +50,7 @@ class AgoraMeetingRoom extends StatefulWidget {
     this.onEndForAll,
     this.record = false,
     this.onSaveChat,
+    this.requestId,
   });
 
   @override
@@ -129,6 +135,48 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     super.initState();
     _initialize();
     _watchSession();
+    if (widget.requestId != null) WidgetsBinding.instance.addPostFrameCallback((_) => _istifhamRecordingNotice());
+  }
+
+  /// جلسات الاستفهام: تنبيه التسجيل + اختيار مدة حفظ التسجيل عند المستفهم (يلزم اتفاق الطرفين).
+  Future<void> _istifhamRecordingNotice() async {
+    final id = widget.requestId;
+    if (id == null || !mounted) return;
+    final fn = FirebaseFunctions.instanceFor(region: 'us-central1');
+    try { await fn.httpsCallable('startIstifhamRecording').call<Map<String, dynamic>>({'requestId': id}); } catch (_) {}
+    if (!mounted) return;
+    var days = 0;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          icon: const Icon(Icons.fiber_manual_record, color: Color(0xFFDC2626)),
+          title: const Text('الجلسة يتم تسجيلها الآن', textAlign: TextAlign.center),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('الجلسة يتم تسجيلها الان لارسالها للادارة لمراجعتها في حال تقديم شكوى', textAlign: TextAlign.center, style: TextStyle(height: 1.6, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 14),
+              const Text('حفظ التسجيل على حساب المستفهم (يشترط موافقة الطرفين بنفس المدة):', textAlign: TextAlign.center, style: TextStyle(fontSize: 12.5)),
+              const SizedBox(height: 8),
+              Wrap(spacing: 6, runSpacing: 6, alignment: WrapAlignment.center, children: [
+                for (final d in const [0, 1, 10, 15, 30])
+                  ChoiceChip(label: Text(d == 0 ? 'لا أريد الحفظ' : '$d يوم'), selected: days == d, onSelected: (_) => setLocal(() => days = d)),
+              ]),
+            ]),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () async {
+                try { await fn.httpsCallable('setSessionRetention').call<Map<String, dynamic>>({'requestId': id, 'days': days}); } catch (_) {}
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('موافق'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _watchSession() {
@@ -616,8 +664,26 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   Future<void> _leave() async {
     if (_closing) return;
     _closing = true;
+    final lastOut = _remoteUsers.isEmpty;
     try { await _engine?.leaveChannel(); } catch (_) {}
+    // جلسة استفهام: آخر من يخرج يُنهي التسجيل ويحفظه للإدارة
+    final rid = widget.requestId;
+    if (rid != null && lastOut) {
+      try { await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('endIstifhamRecording').call<Map<String, dynamic>>({'requestId': rid}); } catch (_) {}
+    }
+    // المستفهم/الطالب: تقييم الجلسة ثم رسالة «استفهم الآن»
+    var goAsk = false;
+    GoRouter? router;
+    if (mounted && !widget.moderator && (rid != null || widget.groupId != null)) {
+      router = GoRouter.maybeOf(context);
+      await showSessionRatingDialog(context, requestId: rid, groupId: rid == null ? widget.groupId : null, sessionId: rid == null ? widget.sessionId : null);
+      if (mounted) {
+        final r = await showAskNowPrompt(context, secondLabel: 'الخروج من الجلسة');
+        goAsk = r == 'ask';
+      }
+    }
     if (mounted && Navigator.of(context).canPop()) Navigator.of(context).pop();
+    if (goAsk) router?.push('/requests/new');
   }
 
   /// زر الإنهاء: المدير يختار بين المغادرة فقط وإنهاء الاجتماع للجميع (يُحذف من المجموعة ويُخرَج الكل).

@@ -69,6 +69,14 @@ class GroupsService {
     }
   }
 
+  /// مشاهدة تسجيل جلسة استفهام: الأدمن دائمًا، والمستفهم لو اتفق الطرفان على الحفظ ولم تنتهِ المدة.
+  Future<GroupMedia> getSessionRecordingMedia(String requestId) async {
+    final res = await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('getSessionRecordingUrl').call<Map<String, dynamic>>({'requestId': requestId});
+    final d = res.data;
+    final wm = (d['watermark'] is Map) ? Map<String, dynamic>.from(d['watermark'] as Map) : <String, dynamic>{};
+    return GroupMedia(url: (d['url'] ?? '').toString(), name: (wm['name'] ?? '').toString(), publicId: (wm['publicId'] ?? '').toString());
+  }
+
   /// مشاهدة تسجيل من لوحة الأدمن.
   Future<GroupMedia> getAdminRecordingMedia(String id) async {
     try {

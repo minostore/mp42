@@ -256,6 +256,7 @@ class MeetingService {
             uid: agoraUid,
             displayName: name.isEmpty ? 'مستخدم' : name,
             moderator: moderator,
+            requestId: meeting.id,
           ),
         ),
       );

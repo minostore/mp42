@@ -234,7 +234,12 @@ class FirestoreService {
   ) async {
     try {
       final doc = await _db.collection('purchases').doc('${uid}_$courseId').get().timeout(const Duration(seconds: 8));
-      if (doc.exists && doc.data() != null && doc.data()!['status'] == 'completed') { _cachePurchase(uid, courseId, true); return true; }
+      if (doc.exists && doc.data() != null && doc.data()!['status'] == 'completed') {
+        final e = doc.data()!['expiresAt'];
+        if (e is num && e > 0 && DateTime.now().millisecondsSinceEpoch > e) { _cachePurchase(uid, courseId, false); return false; } // انتهت صلاحية الكورس
+        _cachePurchase(uid, courseId, true);
+        return true;
+      }
 
       final legacy = await _db.collection('users').doc(uid).collection('purchases').doc(courseId).get();
       if (legacy.exists && legacy.data() != null && legacy.data()!['status'] != 'cancelled' && legacy.data()!['status'] != 'refunded') { _cachePurchase(uid, courseId, true); return true; }
@@ -286,7 +291,12 @@ class FirestoreService {
     if (cached.isNotEmpty) yield cached;
     try {
       await for (final snapshot in _db.collection('purchases').where('uid', isEqualTo: uid).where('status', isEqualTo: 'completed').snapshots()) {
-        final ids = snapshot.docs.map((doc) => (doc.data()['courseId'] ?? '').toString()).where((id) => id.isNotEmpty).toSet();
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final ids = snapshot.docs
+            .where((doc) { final e = doc.data()['expiresAt']; return !(e is num && e > 0 && nowMs > e); })
+            .map((doc) => (doc.data()['courseId'] ?? '').toString())
+            .where((id) => id.isNotEmpty)
+            .toSet();
         try {
           final legacy = await _db.collection('users').doc(uid).collection('purchases').get();
           for (final doc in legacy.docs) {

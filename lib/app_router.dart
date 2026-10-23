@@ -116,6 +116,7 @@ GoRouter buildRouter() {
       GoRoute(path: '/group/:gid/quiz-new', builder: (context, state) => CreateQuizScreen(groupId: state.pathParameters['gid']!)),
       GoRoute(path: '/group/:gid/quiz/:qid', builder: (context, state) => GroupQuizScreen(groupId: state.pathParameters['gid']!, quizId: state.pathParameters['qid']!)),
       GoRoute(path: '/admin/recordings', builder: (context, state) => const LectureRecordingsScreen()),
+      GoRoute(path: '/group-video-session/:rid', builder: (context, state) => GroupVideoScreen(groupId: '', kind: 'session', itemId: state.pathParameters['rid']!, title: 'تسجيل جلسة استفهام')),
       GoRoute(path: '/admin/recordings/:rid', builder: (context, state) => AdminRecordingPlayerScreen(recordingId: state.pathParameters['rid']!, title: state.uri.queryParameters['title'] ?? 'تسجيل')),
       GoRoute(path: '/change-password', builder: (context, state) => const ChangePasswordScreen()),
       GoRoute(path: '/account-security', builder: (context, state) => const AccountSecurityScreen()),

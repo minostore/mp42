@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
+import 'api_functions.dart';
 import 'device_lock_service.dart';
 
 /// هوية المشاهد الحالية (IP + رقم الهاتف + البريد) لعرضها كعلامة مائية متحركة
@@ -14,14 +15,17 @@ class ViewerIdentity {
   final String phone;
   final String email;
   final String device;
-  const ViewerIdentity({this.ip = '', this.phone = '', this.email = '', this.device = ''});
+  final String name;
+  final String publicId;
+  const ViewerIdentity({this.ip = '', this.phone = '', this.email = '', this.device = '', this.name = '', this.publicId = ''});
 
   /// الأسطر التي تُعرض (تُتجاهل الفارغة).
   List<String> get lines => [
-        if (ip.isNotEmpty) 'IP: $ip',
+        if (name.isNotEmpty) name,
+        if (publicId.isNotEmpty) 'الرقم التعريفي: $publicId',
         if (phone.isNotEmpty) phone,
         if (email.isNotEmpty) email,
-        if (device.isNotEmpty) 'جهاز: $device',
+        if (ip.isNotEmpty) 'IP: $ip',
       ];
 
   static ViewerIdentity? _cached;
@@ -39,6 +43,8 @@ class ViewerIdentity {
   static Future<ViewerIdentity> _fetch() async {
     final user = FirebaseAuth.instance.currentUser;
     var phone = '';
+    var name = '';
+    var publicId = '';
     var email = user?.email ?? '';
     if (user != null) {
       try {
@@ -47,20 +53,35 @@ class ViewerIdentity {
         phone = (d['phone'] ?? d['phoneNumber'] ?? user.phoneNumber ?? '').toString();
         final e = (d['email'] ?? '').toString();
         if (e.isNotEmpty) email = e;
+        name = (d['name'] ?? d['fullName'] ?? user.displayName ?? '').toString();
+        publicId = (d['publicId'] ?? '').toString();
       } catch (_) {
         phone = user.phoneNumber ?? '';
       }
     }
+    if (user != null && publicId.isEmpty) {
+      // الرقم التعريفي يُولَّد من السيرفر عند أول طلب
+      try {
+        final r = await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('ensurePublicId').call<Map<String, dynamic>>().timeout(const Duration(seconds: 6));
+        publicId = (r.data['publicId'] ?? '').toString();
+      } catch (_) {}
+    }
     final ip = await _publicIp();
     var device = '';
     try { device = await DeviceLockService.shortCode(); } catch (_) {}
-    final id = ViewerIdentity(ip: ip, phone: phone, email: email, device: device);
+    final id = ViewerIdentity(ip: ip, phone: phone, email: email, device: device, name: name, publicId: publicId);
     _cached = id;
     _cachedAt = DateTime.now();
     return id;
   }
 
   static Future<String> _publicIp() async {
+    // الأفضل: الـ IP كما يراه خادمنا (لا يمكن تزويره من العميل)
+    try {
+      final r = await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('getMyIp').call<Map<String, dynamic>>().timeout(const Duration(seconds: 5));
+      final ip = (r.data['ip'] ?? '').toString().trim();
+      if (ip.isNotEmpty) return ip;
+    } catch (_) {}
     // نجرّب أكثر من خدمة؛ لو فشلت كلها نكمل بدون IP بدل ما نعطّل التشغيل.
     final sources = <String, String? Function(String)>{
       // api64 يرجّع عنوان IPv6 الخاص بالجهاز لو شبكته تدعمه (أقرب لعنوان الجهاز الفعلي من IPv4 المشترك)

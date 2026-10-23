@@ -1,3 +1,4 @@
+import '../widgets/course_validity.dart';
 import 'package:flutter/material.dart';
 import '../widgets/smart_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -98,6 +99,13 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(course.title, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontSize: 21)),
+                          if (purchased)
+                            CourseValidityCountdown(courseId: course.id)
+                          else
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text('صلاحية الكورس: ${courseValidityLabel(course.raw)}', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.muted)),
+                            ),
                           const SizedBox(height: 8),
                           Text('المفهّم: ${course.instructorName.isEmpty ? 'مفهّم' : course.instructorName}', style: const TextStyle(color: AppColors.muted, fontSize: 13)),
                           const SizedBox(height: 14),

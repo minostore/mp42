@@ -31,6 +31,9 @@ class _CreateCourseScreenState extends State<CreateCourseScreen> {
   final _title = TextEditingController();
   final _desc = TextEditingController();
   final _price = TextEditingController(text: '0');
+  bool _lifetime = true;
+  final _validityValue = TextEditingController(text: '6');
+  String _validityUnit = 'month';
   CategoryChoice _choice = const CategoryChoice();
   File? _cover;
   String _coverName = 'cover.jpg';
@@ -87,6 +90,8 @@ class _CreateCourseScreenState extends State<CreateCourseScreen> {
     if (_title.text.trim().length < 4) return _toast('اكتب عنوان الكورس');
     if (_desc.text.trim().length < 10) return _toast('اكتب وصفًا للكورس');
     if (price == null || price < 0) return _toast('السعر غير صحيح');
+    final vv = int.tryParse(_validityValue.text.trim());
+    if (!_lifetime && (vv == null || vv < 1 || vv > 100)) return _toast('مدة الصلاحية رقم من 1 إلى 100');
     if (_choice.isEmpty || (isOtherNode(_choice.main, _choice.sub, _choice.opt) && _choice.custom.isEmpty)) return _toast('اختر قسم الكورس');
     if (_cover == null) return _toast('اختر صورة غلاف للكورس');
     final lessons = _lessons.where((l) => l.video != null).toList();
@@ -123,6 +128,9 @@ class _CreateCourseScreenState extends State<CreateCourseScreen> {
         'title': _title.text.trim(),
         'description': _desc.text.trim(),
         'price': price,
+        'lifetime': _lifetime,
+        'validityValue': _lifetime ? 0 : vv,
+        'validityUnit': _lifetime ? '' : _validityUnit,
         ..._choice.toFields(),
         'thumbnailUrl': cover['token'] ?? cover['key'],
         'coverKey': cover['key'],
@@ -175,6 +183,25 @@ class _CreateCourseScreenState extends State<CreateCourseScreen> {
                 TextField(controller: _desc, maxLines: 4, decoration: const InputDecoration(labelText: 'وصف الكورس')),
                 const SizedBox(height: 12),
                 TextField(controller: _price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'السعر (ج.م) — 0 للمجاني')),
+                const SizedBox(height: 12),
+                SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('صلاحية الكورس مدى الحياة'), value: _lifetime, onChanged: (v) => setState(() => _lifetime = v)),
+                if (!_lifetime)
+                  Row(children: [
+                    Expanded(child: TextField(controller: _validityValue, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المدة (1 - 100)'))),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _validityUnit,
+                        decoration: const InputDecoration(labelText: 'الوحدة'),
+                        items: const [
+                          DropdownMenuItem(value: 'day', child: Text('يوم')),
+                          DropdownMenuItem(value: 'month', child: Text('شهر')),
+                          DropdownMenuItem(value: 'year', child: Text('سنة')),
+                        ],
+                        onChanged: (v) => setState(() => _validityUnit = v ?? 'month'),
+                      ),
+                    ),
+                  ]),
                 const SizedBox(height: 12),
                 CategoryPicker(value: _choice, onChanged: (c) => setState(() => _choice = c)),
                 OutlinedButton.icon(

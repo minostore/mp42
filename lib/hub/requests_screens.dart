@@ -1,3 +1,4 @@
+import '../widgets/post_session_prompt.dart';
 import '../services/api_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -252,6 +253,15 @@ class RequestDetailScreen extends StatelessWidget {
                             label: Text(mine == null ? 'قدّم عرضك الآن' : 'تعديل عرضي'),
                           );
                         },
+                      ),
+                    if ((isOwner || (uid != null && r['mufhemId'] == uid)) && (status == 'paid' || status == 'completed'))
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () => showSessionComplaintDialog(context, requestId),
+                          icon: const Icon(Icons.report_gmailerrorred_outlined),
+                          label: const Text('تقديم شكوى على الجلسة'),
+                        ),
                       ),
                     if (isOwner && status == 'paid')
                       Padding(

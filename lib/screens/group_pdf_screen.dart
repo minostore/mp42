@@ -83,7 +83,7 @@ class _GroupPdfScreenState extends State<GroupPdfScreen> {
     }
   }
 
-  String get _uid => FirebaseAuth.instance.currentUser!.uid;
+  String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   @override
   void initState() {
