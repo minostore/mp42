@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../services/api_functions.dart';
 import '../theme/app_theme.dart';
 
 /// نص صلاحية الكورس قبل الشراء، من حقول الكورس: lifetime / validityValue / validityUnit.
@@ -29,6 +30,7 @@ class CourseValidityCountdown extends StatefulWidget {
 class _CourseValidityCountdownState extends State<CourseValidityCountdown> {
   Timer? _t;
   int? _expiresMs; // null = مدى الحياة / غير معروف
+  int _serverOffsetMs = 0; // فرق وقت الخادم عن ساعة الجهاز (العد التنازلي بوقت الخادم)
   bool _loaded = false;
 
   @override
@@ -45,6 +47,11 @@ class _CourseValidityCountdownState extends State<CourseValidityCountdown> {
     if (uid == null) return;
     try {
       final d = await FirebaseFirestore.instance.collection('purchases').doc('${uid}_${widget.courseId}').get();
+      try {
+        final t = await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('getMyIp').call<Map<String, dynamic>>().timeout(const Duration(seconds: 6));
+        final sn = t.data['serverNow'];
+        if (sn is num) _serverOffsetMs = sn.toInt() - DateTime.now().millisecondsSinceEpoch;
+      } catch (_) {}
       final e = d.data()?['expiresAt'];
       if (e is num && e > 0) _expiresMs = e.toInt();
     } catch (_) {}
@@ -70,7 +77,7 @@ class _CourseValidityCountdownState extends State<CourseValidityCountdown> {
   Widget build(BuildContext context) {
     if (!_loaded) return const SizedBox.shrink();
     final exp = _expiresMs;
-    final text = exp == null ? 'صلاحية الكورس: مدى الحياة' : 'صلاحية الكورس — ${_remaining(DateTime.fromMillisecondsSinceEpoch(exp).difference(DateTime.now()))}';
+    final text = exp == null ? 'صلاحية الكورس: مدى الحياة' : 'صلاحية الكورس — ${_remaining(DateTime.fromMillisecondsSinceEpoch(exp).difference(DateTime.now().add(Duration(milliseconds: _serverOffsetMs))))}';
     return Container(
       margin: const EdgeInsets.only(top: 12),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
