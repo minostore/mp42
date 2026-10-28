@@ -27,26 +27,11 @@ class _HomeShellState extends State<HomeShell> {
     _checkDeviceLock();
   }
 
-  /// جلسة محفوظة على جهاز غير الجهاز المسجّل: نخرّج المستخدم فورًا.
+  /// جلسة محفوظة على جهاز غير الجهاز المسجّل: شاشة طلب اعتماد الجهاز.
   Future<void> _checkDeviceLock() async {
     final lock = await DeviceLockService.claim();
     if (!lock.locked || !mounted) return;
-    await FirebaseAuth.instance.signOut();
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        child: AlertDialog(
-          icon: const Icon(Icons.phonelink_lock, size: 36),
-          title: const Text('الحساب مسجّل على جهاز آخر'),
-          content: Text(lock.message),
-          actions: [FilledButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('حسنًا'))],
-        ),
-      ),
-    );
-    if (mounted) context.go('/login');
+    context.go('/device-locked');
   }
 
   final List<Widget> _tabs = const [

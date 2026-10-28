@@ -100,7 +100,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                         children: [
                           Text(course.title, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontSize: 21)),
                           if (purchased)
-                            CourseValidityCountdown(courseId: course.id)
+                            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [CourseValidityCountdown(courseId: course.id), CourseRefundSection(courseId: course.id)])
                           else
                             Padding(
                               padding: const EdgeInsets.only(top: 8),

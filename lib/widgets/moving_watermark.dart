@@ -118,6 +118,7 @@ class _TiledWatermarkState extends State<TiledWatermark> {
       if (widget.nameAndId.trim().isNotEmpty) widget.nameAndId.trim(),
       if (_id.phone.isNotEmpty) _id.phone,
       if (_id.email.isNotEmpty) _id.email,
+      if (_id.ip.isNotEmpty) 'IP: ${_id.ip}',
     ];
     if (lines.isEmpty) return const SizedBox.shrink();
     const style = TextStyle(color: Color(0x1F000000), fontSize: 12, fontWeight: FontWeight.w700, height: 1.3);

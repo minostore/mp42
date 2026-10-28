@@ -50,6 +50,35 @@ class DeviceLockService {
     return (fingerprint: '', name: 'جهاز');
   }
 
+  /// طلب رسمي لاعتماد هذا الجهاز (تراجعه الإدارة). يرجع null لو نجح، أو رسالة الخطأ.
+  static Future<String?> requestChange(String reason) async {
+    try {
+      final id = await _deviceId();
+      final fp = await _fingerprint();
+      await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('requestDeviceChange').call<Map<String, dynamic>>({
+        'deviceId': id,
+        'fingerprint': fp.fingerprint,
+        'deviceName': fp.name,
+        'reason': reason,
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذر إرسال الطلب';
+    } catch (_) {
+      return 'تعذر إرسال الطلب';
+    }
+  }
+
+  /// حالة آخر طلب: none | pending | approved | rejected (+ ملاحظة الإدارة).
+  static Future<({String status, String note})> requestStatus() async {
+    try {
+      final r = await FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('getDeviceRequestStatus').call<Map<String, dynamic>>();
+      return (status: (r.data['status'] ?? 'none').toString(), note: (r.data['note'] ?? '').toString());
+    } catch (_) {
+      return (status: 'none', note: '');
+    }
+  }
+
   /// يحجز الحساب لهذا الجهاز أو يرفض. أي خطأ آخر (شبكة/خادم قديم) لا يمنع الدخول.
   static Future<DeviceLockResult> claim() async {
     if (FirebaseAuth.instance.currentUser == null) return const DeviceLockResult();

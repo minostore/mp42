@@ -101,9 +101,9 @@ class _LoginScreenState extends State<LoginScreen> {
       // قفل الجهاز الواحد: لو الحساب مسجّل على جهاز آخر نخرّج المستخدم ونعرض السبب
       final lock = await DeviceLockService.claim();
       if (lock.locked) {
-        await _auth.signOut();
+        // يبقى مسجل الدخول لكن محجوبًا: شاشة طلب اعتماد الجهاز الجديد
         if (!mounted) return;
-        setState(() => _error = lock.message);
+        context.go('/device-locked');
         return;
       }
 

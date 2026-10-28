@@ -1,3 +1,4 @@
+import 'screens/device_locked_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -84,6 +85,7 @@ GoRouter buildRouter() {
       GoRoute(path: '/offers/mine', builder: (context, state) => const MyOffersScreen()),
       GoRoute(path: '/mufhems', builder: (context, state) => const MufhemsScreen()),
       GoRoute(path: '/mufhems/:id', builder: (context, state) => MufhemProfileScreen(mufhemId: state.pathParameters['id']!)),
+      GoRoute(path: '/device-locked', builder: (context, state) => const DeviceLockedScreen()),
       GoRoute(path: '/portfolio', builder: (context, state) => const PortfolioScreen()),
       GoRoute(path: '/portfolio/new', builder: (context, state) => const AddWorkScreen()),
       GoRoute(path: '/portfolio/:id', builder: (context, state) => PortfolioDetailScreen(workId: state.pathParameters['id']!)),
