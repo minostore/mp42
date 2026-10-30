@@ -22,17 +22,9 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        enableScreenProtection()
-        blockAudioCapture()
-        application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
-            override fun onActivityCreated(activity: Activity, state: Bundle?) { activity.window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE) }
-            override fun onActivityStarted(activity: Activity) { activity.window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE) }
-            override fun onActivityResumed(activity: Activity) { activity.window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE) }
-            override fun onActivityPaused(activity: Activity) {}
-            override fun onActivityStopped(activity: Activity) {}
-            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
-            override fun onActivityDestroyed(activity: Activity) {}
-        })
+        // تم إلغاء حماية الشاشة: لقطات الشاشة وتسجيل الشاشة مسموحان (لا FLAG_SECURE ولا منع لالتقاط الصوت).
+        disableScreenProtection()
+        blockAudioCapture() // الاسم قديم: صار يسمح بالتقاط الصوت
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -69,7 +61,8 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "enable" -> {
-                    enableScreenProtection()
+                    // الحماية ملغاة: لا نضع FLAG_SECURE
+                    disableScreenProtection()
                     result.success(true)
                 }
 
@@ -191,7 +184,7 @@ class MainActivity : FlutterActivity() {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                am.setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)
+                am.setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_ALL)
             }
             true
         } catch (_: Throwable) { false }
