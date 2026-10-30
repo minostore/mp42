@@ -258,19 +258,31 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
         },
       ));
       // الدخول بدون نشر مايك أو كاميرا
-      await engine.joinChannel(
-        token: widget.token,
-        channelId: widget.channel,
-        uid: widget.uid,
-        options: const ChannelMediaOptions(
-          channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
-          clientRoleType: ClientRoleType.clientRoleBroadcaster,
-          publishCameraTrack: false,
-          publishMicrophoneTrack: false,
-          autoSubscribeAudio: true,
-          autoSubscribeVideo: true,
-        ),
-      );
+      Future<void> doJoin() => engine.joinChannel(
+            token: widget.token,
+            channelId: widget.channel,
+            uid: widget.uid,
+            options: const ChannelMediaOptions(
+              channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
+              clientRoleType: ClientRoleType.clientRoleBroadcaster,
+              publishCameraTrack: false,
+              publishMicrophoneTrack: false,
+              autoSubscribeAudio: true,
+              autoSubscribeVideo: true,
+            ),
+          );
+      try {
+        await doJoin();
+      } on AgoraRtcException catch (e) {
+        // -17 = الدخول مرفوض لأن هذا الجهاز ما زال داخل القناة (جلسة سابقة لم تُغلق): نخرج ونعيد المحاولة مرة
+        if (e.code == -17) {
+          try { await engine.leaveChannel(); } catch (_) {}
+          await Future.delayed(const Duration(milliseconds: 600));
+          await doJoin();
+        } else {
+          rethrow;
+        }
+      }
       if (mounted) setState(() => _busy = false);
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _busy = false; });

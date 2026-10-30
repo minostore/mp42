@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -43,7 +44,8 @@ class _PublicIdCardState extends State<PublicIdCard> {
       margin: widget.margin,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(color: AppColors.accentLight, borderRadius: BorderRadius.circular(14)),
-      child: Row(children: [
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+      Row(children: [
         const Icon(Icons.badge_outlined, color: AppColors.accent),
         const SizedBox(width: 10),
         const Text('رقمك التعريفي:', style: TextStyle(fontWeight: FontWeight.w700)),
@@ -57,6 +59,12 @@ class _PublicIdCardState extends State<PublicIdCard> {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم نسخ الرقم التعريفي')));
           },
         ),
+      ]),
+      // معرّف الحساب الداخلي + البريد: لتحديد أي حساب مسجَّل عليه الجهاز الآن
+      Padding(
+        padding: const EdgeInsetsDirectional.only(start: 34, bottom: 2),
+        child: SelectableText('الحساب: ${FirebaseAuth.instance.currentUser?.email ?? ''}\nUID: ${FirebaseAuth.instance.currentUser?.uid ?? ''}', textDirection: TextDirection.ltr, style: const TextStyle(fontSize: 10.5, color: Colors.black54)),
+      ),
       ]),
     );
   }

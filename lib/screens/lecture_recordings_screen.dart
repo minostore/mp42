@@ -62,23 +62,23 @@ class _BodyState extends State<_Body> {
         return _Problem(title.isEmpty ? 'فشل رفع التسجيل' : title, cause, fix, (m['error'] ?? '').toString());
       }
       final raw = (m['error'] ?? '').toString();
-      return _Problem('فشل رفع التسجيل', raw == 'no_download_link' ? 'JaaS لم يرسل رابط التسجيل.' : 'السبب التقني: $raw',
-          'افتح Vercel ← Logs لمسار /api/jaas/webhook وأرسل الخطأ للمطوّر.', raw);
+      return _Problem('فشل حفظ التسجيل', 'السبب التقني: $raw',
+          'تحقق من Vercel: AGORA_CUSTOMER_ID و AGORA_CUSTOMER_SECRET ومن تفعيل Cloud Recording في Agora Console. لو الخطأ allocate_timeout فهو مؤقت من Agora، أنهِ جلسة أخرى وجرّب مرة أخرى.', raw);
     }
     if (st == 'uploading') {
       final started = (m['uploadStartedAtMs'] is num) ? (m['uploadStartedAtMs'] as num).toInt() : 0;
       if (started > 0 && DateTime.now().millisecondsSinceEpoch - started > 10 * 60 * 1000) {
-        return _Problem('الرفع متوقف منذ أكثر من 10 دقائق',
-            'غالبًا تجاوزت العملية حد وقت دالة Vercel (60 ثانية في الخطة المجانية) فانقطعت قبل الانتهاء، فبقيت الحالة «جارٍ الرفع».',
-            'ارفع حد maxDuration (خطة Pro) أو قلّل حجم/مدة التسجيل، ثم أعد إرسال حدث RECORDING_UPLOADED من JaaS Console. راجع Vercel ← Logs لمسار /api/jaas/webhook.', 'uploadStartedAtMs=$started');
+        return _Problem('الحفظ متوقف منذ أكثر من 10 دقائق',
+            'لم يكتمل حفظ الملف في التخزين.',
+            'راجع Vercel ← Logs، وتأكد من إعدادات Agora Cloud Recording وتخزين R2.', 'uploadStartedAtMs=$started');
       }
     }
     if (st == 'processing' || st == 'recording') {
       final ts = m['createdAt'];
       if (ts is Timestamp && DateTime.now().difference(ts.toDate()).inHours >= 6) {
         return _Problem('التسجيل عالق في «${_status[st]}» منذ ساعات',
-            'لم يصل حدث RECORDING_UPLOADED من JaaS (Webhook غير مضبوط أو الأحداث الثلاثة غير مفعّلة).',
-            'JaaS Console ← Webhooks: تأكد من الرابط وسر JAAS_WEBHOOK_SECRET وتفعيل RECORDING_STARTED / ENDED / UPLOADED.', '');
+            'تسجيلات قديمة (قبل التحويل إلى Agora) أو جلسة انقطعت دون إنهاء.',
+            'لو الجلسة قديمة يمكن حذفها. الجلسات الجديدة تُسجَّل عبر Agora وتظهر جاهزة أو فاشلة بسبب واضح.', '');
       }
     }
     return null;
