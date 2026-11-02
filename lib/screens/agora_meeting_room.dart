@@ -1,3 +1,4 @@
+import '../services/session_recorder.dart';
 import '../services/api_functions.dart';
 import 'package:go_router/go_router.dart';
 import '../widgets/post_session_prompt.dart';
@@ -138,6 +139,24 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     if (widget.requestId != null) WidgetsBinding.instance.addPostFrameCallback((_) => _istifhamRecordingNotice());
   }
 
+  bool _recStarted = false;
+
+  /// تسجيل الجلسة من جهاز صاحبها (المدير/المُفهم): شاشة + صوت ثم رفع إلى R2 (بدل Agora السحابي).
+  Future<void> _startDeviceRecording() async {
+    if (_recStarted || !widget.moderator) return;
+    final isIstifham = widget.requestId != null;
+    final isGroup = widget.record && widget.groupId != null && widget.sessionId != null;
+    if (!isIstifham && !isGroup) return;
+    _recStarted = true;
+    final err = await SessionRecorder.start(_engine, {
+      'kind': isIstifham ? 'istifham' : 'group',
+      if (isIstifham) 'requestId': widget.requestId!,
+      if (!isIstifham) 'groupId': widget.groupId!,
+      if (!isIstifham) 'sessionId': widget.sessionId!,
+    });
+    if (err != null && mounted) _toast('تعذر تسجيل الجلسة: $err');
+  }
+
   /// جلسات الاستفهام: تنبيه التسجيل + اختيار مدة حفظ التسجيل عند المستفهم (يلزم اتفاق الطرفين).
   Future<void> _istifhamRecordingNotice() async {
     final id = widget.requestId;
@@ -219,6 +238,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
             _streamId = await engine.createDataStream(const DataStreamConfig(syncWithAudio: false, ordered: true));
             _sendHello();
           } catch (_) {}
+          _startDeviceRecording();
         },
         onUserJoined: (connection, remoteUid, elapsed) {
           if (mounted) setState(() => _remoteUsers.add(remoteUid));
@@ -676,6 +696,11 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   Future<void> _leave() async {
     if (_closing) return;
     _closing = true;
+    // إنهاء تسجيل الجهاز وبدء الرفع في الخلفية قبل مغادرة القناة
+    if (SessionRecorder.isRecording) {
+      await SessionRecorder.stopAndUpload();
+      if (mounted) _toast('جاري رفع تسجيل الجلسة في الخلفية، لا تغلق التطبيق حتى ينتهي');
+    }
     final lastOut = _remoteUsers.isEmpty;
     try { await _engine?.leaveChannel(); } catch (_) {}
     // جلسة استفهام: آخر من يخرج يُنهي التسجيل ويحفظه للإدارة
@@ -773,6 +798,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   void dispose() {
     _sessionSub?.cancel();
     _flushTimer?.cancel();
+    if (SessionRecorder.isRecording) unawaited(SessionRecorder.stopAndUpload());
     _chatC.dispose();
     _chatScroll.dispose();
     final engine = _engine;

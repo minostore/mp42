@@ -1,3 +1,4 @@
+import '../services/session_recorder.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -25,6 +26,7 @@ class _HomeShellState extends State<HomeShell> {
   void initState() {
     super.initState();
     _checkDeviceLock();
+    SessionRecorder.uploadPending(); // استكمال رفع تسجيلات لم تكتمل (انقطاع نت/إغلاق التطبيق)
   }
 
   /// جلسة محفوظة على جهاز غير الجهاز المسجّل: شاشة طلب اعتماد الجهاز.
