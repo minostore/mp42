@@ -1,3 +1,4 @@
+import '../widgets/course_progress.dart';
 import '../widgets/course_validity.dart';
 import 'package:flutter/material.dart';
 import '../widgets/smart_image.dart';
@@ -100,7 +101,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                         children: [
                           Text(course.title, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontSize: 21)),
                           if (purchased)
-                            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [CourseValidityCountdown(courseId: course.id), CourseRefundSection(courseId: course.id)])
+                            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [CourseProgressBar(courseId: course.id), CourseValidityCountdown(courseId: course.id), CourseRefundSection(courseId: course.id)])
                           else
                             Padding(
                               padding: const EdgeInsets.only(top: 8),

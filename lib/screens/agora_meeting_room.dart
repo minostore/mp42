@@ -81,6 +81,14 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   bool _joined = false;
   bool _muted = true; // مقفول افتراضيًا
   bool _cameraOff = true; // مقفولة افتراضيًا
+
+  // رفع اليد + تحكم المدير بمايك/كاميرا الطلاب
+  bool _handUp = false; // عند الطالب
+  final Set<int> _hands = <int>{}; // عند المدير: من رفع يده
+  final Map<int, bool> _remoteMic = <int, bool>{}; // عند المدير: حالة مايك كل طالب
+  final Map<int, bool> _remoteCam = <int, bool>{}; // عند المدير: حالة كاميرا كل طالب
+  bool _camForceOff = false; // عند الطالب: المدير أغلق كاميرته
+  bool _recStopped = false; // التسجيل لا يُعاد بدؤه في نفس الجلسة بعد إيقافه
   bool _speakerOn = true;
   bool _sharingScreen = false;
   bool _busy = true;
@@ -141,11 +149,34 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
 
   bool _recStarted = false;
 
+  /// زر «تسجيل»: يبدأ/يوقف تسجيل شاشة الجلسة كاملة (الاجتماع + الملفات والسبورة والشاشة المشاركة والشات وأي شيء يظهر على الشاشة).
+  Future<void> _toggleRecording() async {
+    if (SessionRecorder.isRecording) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('إيقاف التسجيل؟'),
+          content: const Text('سيتوقف التسجيل ويُرفع إلى التخزين. لا يمكن إعادة بدئه في نفس الجلسة.'),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('متابعة التسجيل')), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('إيقاف'))],
+        ),
+      );
+      if (ok != true) return;
+      await SessionRecorder.stopAndUpload();
+      _recStopped = true;
+      if (mounted) { setState(() {}); _toast('تم إيقاف التسجيل وجاري رفعه في الخلفية'); }
+      return;
+    }
+    if (_recStopped) { _toast('تم تسجيل هذه الجلسة بالفعل'); return; }
+    await _startDeviceRecording(manual: true);
+    if (mounted) setState(() {});
+  }
+
   /// تسجيل الجلسة من جهاز صاحبها (المدير/المُفهم): شاشة + صوت ثم رفع إلى R2 (بدل Agora السحابي).
-  Future<void> _startDeviceRecording() async {
+  /// يبدأ تلقائيًا في جلسات الاستفهام والجلسات المنشأة بخيار التسجيل، وإلا بطلب المدير من زر «تسجيل».
+  Future<void> _startDeviceRecording({bool manual = false}) async {
     if (_recStarted || !widget.moderator) return;
     final isIstifham = widget.requestId != null;
-    final isGroup = widget.record && widget.groupId != null && widget.sessionId != null;
+    final isGroup = widget.groupId != null && widget.sessionId != null && (widget.record || manual);
     if (!isIstifham && !isGroup) return;
     _recStarted = true;
     final err = await SessionRecorder.start(_engine, {
@@ -154,6 +185,8 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
       if (!isIstifham) 'groupId': widget.groupId!,
       if (!isIstifham) 'sessionId': widget.sessionId!,
     });
+    if (err != null) _recStarted = false; // يمكن المحاولة مرة أخرى (مثلًا بعد رفض الإذن)
+    if (mounted) setState(() {});
     if (err != null && mounted) _toast('تعذر تسجيل الجلسة: $err');
   }
 
@@ -211,7 +244,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     }, onError: (_) {});
   }
 
-  void _sendHello() => _send({'t': 'n', 'n': widget.displayName, 'mod': widget.moderator ? 1 : 0});
+  void _sendHello() { _send({'t': 'n', 'n': widget.displayName, 'mod': widget.moderator ? 1 : 0}); if (!widget.moderator) { _sendState(); if (_handUp) _send({'t': 'h', 'v': 1}); } }
 
   Future<void> _initialize() async {
     try {
@@ -310,11 +343,10 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   }
 
   // ===== المايك والكاميرا (المستخدم يفتحهم بنفسه) =====
-  Future<void> _toggleMic() async {
+  Future<void> _setMic(bool on) async {
     final engine = _engine;
     if (engine == null) return;
-    if (_muted && _forceMuted) { _toast('كتم مدير الاجتماع صوتك'); return; }
-    if (_muted) {
+    if (on) {
       final st = await Permission.microphone.request();
       if (!st.isGranted) { _toast('اسمح للتطبيق باستخدام الميكروفون من إعدادات الهاتف'); return; }
       await engine.enableLocalAudio(true);
@@ -322,14 +354,19 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     } else {
       await engine.updateChannelMediaOptions(const ChannelMediaOptions(publishMicrophoneTrack: false));
     }
-    if (mounted) setState(() => _muted = !_muted);
+    if (mounted) setState(() => _muted = !on);
+    _sendState();
   }
 
-  Future<void> _toggleCamera() async {
+  Future<void> _toggleMic() async {
+    if (_muted && _forceMuted) { _toast('كتم مدير الاجتماع صوتك'); return; }
+    await _setMic(_muted);
+  }
+
+  Future<void> _setCamera(bool on) async {
     final engine = _engine;
     if (engine == null) return;
-    if (_sharingScreen) { _toast('أوقف مشاركة الشاشة أولًا'); return; }
-    if (_cameraOff) {
+    if (on) {
       final st = await Permission.camera.request();
       if (!st.isGranted) { _toast('اسمح للتطبيق باستخدام الكاميرا من إعدادات الهاتف'); return; }
       await engine.enableLocalVideo(true);
@@ -339,7 +376,61 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
       await engine.updateChannelMediaOptions(const ChannelMediaOptions(publishCameraTrack: false));
       await engine.stopPreview();
     }
-    if (mounted) setState(() => _cameraOff = !_cameraOff);
+    if (mounted) setState(() => _cameraOff = !on);
+    _sendState();
+  }
+
+  Future<void> _toggleCamera() async {
+    if (_sharingScreen) { _toast('أوقف مشاركة الشاشة أولًا'); return; }
+    if (_cameraOff && _camForceOff) { _toast('أغلق مدير الاجتماع كاميرتك'); return; }
+    await _setCamera(_cameraOff);
+  }
+
+  // ===== رفع اليد وتحكم المدير =====
+  void _sendState() => _send({'t': 'st', 'mic': _muted ? 0 : 1, 'cam': _cameraOff ? 0 : 1});
+
+  void _toggleHand() {
+    setState(() => _handUp = !_handUp);
+    _send({'t': 'h', 'v': _handUp ? 1 : 0});
+    _toast(_handUp ? 'تم رفع يدك، سيراها مدير الاجتماع' : 'تم إنزال يدك');
+  }
+
+  /// المدير: يفتح/يقفل مايك أو كاميرا طالب، أو ينزّل يده.
+  void _ctl(int uid, {bool? mic, bool? cam, bool lowerHand = false}) {
+    _send({'t': 'ctl', 'to': uid, if (mic != null) 'mic': mic ? 1 : 0, if (cam != null) 'cam': cam ? 1 : 0, if (lowerHand) 'hand': 0});
+    setState(() {
+      if (mic != null) _remoteMic[uid] = mic;
+      if (cam != null) _remoteCam[uid] = cam;
+      if (lowerHand) _hands.remove(uid);
+    });
+  }
+
+  /// الطالب: ينفّذ أمر المدير.
+  Future<void> _applyControl(Map<String, dynamic> m) async {
+    if (m['hand'] == 0 && _handUp && mounted) setState(() => _handUp = false);
+    if (m.containsKey('mic')) {
+      if (m['mic'] == 1) {
+        _forceMuted = false;
+        if (_muted) await _setMic(true);
+        _toast('فتح مدير الاجتماع المايك الخاص بك');
+      } else {
+        _forceMuted = true;
+        if (!_muted) await _setMic(false);
+        _toast('كتم مدير الاجتماع صوتك');
+      }
+    }
+    if (m.containsKey('cam')) {
+      if (m['cam'] == 1) {
+        _camForceOff = false;
+        if (_cameraOff && !_sharingScreen) await _setCamera(true);
+        _toast('فتح مدير الاجتماع الكاميرا الخاصة بك');
+      } else {
+        _camForceOff = true;
+        if (!_cameraOff) await _setCamera(false);
+        _toast('أغلق مدير الاجتماع كاميرتك');
+      }
+    }
+    _sendState();
   }
 
   // ===== مشاركة الشاشة =====
@@ -399,6 +490,25 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
             _names[fromUid] = (m['n'] ?? '').toString();
             if (m['mod'] == 1) _modUid = fromUid;
           });
+          break;
+        case 'h': // رفع/إنزال يد (يهم المدير فقط)
+          if (!mounted || !widget.moderator) return;
+          setState(() {
+            if (m['v'] == 1) {
+              _hands.add(fromUid);
+              _toast('✋ ${(_names[fromUid] ?? '').isEmpty ? 'مشارك' : _names[fromUid]} رفع يده');
+            } else {
+              _hands.remove(fromUid);
+            }
+          });
+          break;
+        case 'st': // حالة مايك/كاميرا مشارك
+          if (!mounted || !widget.moderator) return;
+          setState(() { _remoteMic[fromUid] = m['mic'] == 1; _remoteCam[fromUid] = m['cam'] == 1; });
+          break;
+        case 'ctl': // أمر تحكم من المدير: مايك/كاميرا/إنزال اليد
+          if (m['to'] != widget.uid || fromUid != _modUid) return;
+          _applyControl(m);
           break;
         case 'm': // أمر كتم/إلغاء كتم من مدير الاجتماع لمشارك محدد
           if (m['to'] != widget.uid || fromUid != _modUid) return;
@@ -758,37 +868,54 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     }
   }
 
-  /// قائمة المتصلين (لمدير الاجتماع).
+  /// قائمة المتصلين (لمدير الاجتماع): اليد المرفوعة + فتح/قفل مايك وكاميرا كل طالب.
   void _showParticipants() {
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: const Color(0xFF171B22),
       builder: (ctx) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.all(12),
-          children: [
-            Text('المتصلون الآن (${_remoteUsers.length + 1})', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const CircleAvatar(child: Icon(Icons.person)),
-              title: Text('${widget.displayName} (أنت)', style: const TextStyle(color: Colors.white)),
-            ),
-            for (final u in _remoteUsers)
-              StatefulBuilder(
-                builder: (ctx, setRow) => ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-                  title: Text((_names[u] ?? '').isEmpty ? 'مشارك' : _names[u]!, style: const TextStyle(color: Colors.white)),
-                  trailing: widget.moderator
-                      ? TextButton.icon(
-                          onPressed: () { _toggleMuteStudent(u); setRow(() {}); },
-                          icon: Icon(_modMuted.contains(u) ? Icons.mic_off : Icons.mic, size: 18, color: _modMuted.contains(u) ? const Color(0xFFEF4444) : const Color(0xFF22C55E)),
-                          label: Text(_modMuted.contains(u) ? 'إلغاء الكتم' : 'كتم', style: TextStyle(color: _modMuted.contains(u) ? const Color(0xFFEF4444) : const Color(0xFF22C55E))),
-                        )
-                      : null,
-                ),
+        child: _LiveBuilder(
+          builder: (ctx) {
+            // من رفع يده يظهر أولًا
+            final users = [..._remoteUsers]..sort((a, b) => (_hands.contains(b) ? 1 : 0) - (_hands.contains(a) ? 1 : 0));
+            return ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.75),
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.all(12),
+                children: [
+                  Text('المتصلون الآن (${_remoteUsers.length + 1})', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
+                  const SizedBox(height: 8),
+                  ListTile(
+                    leading: const CircleAvatar(child: Icon(Icons.person)),
+                    title: Text('${widget.displayName} (أنت)', style: const TextStyle(color: Colors.white)),
+                  ),
+                  for (final u in users)
+                    ListTile(
+                      leading: CircleAvatar(backgroundColor: _hands.contains(u) ? const Color(0xFFF59E0B) : null, child: Icon(_hands.contains(u) ? Icons.back_hand : Icons.person_outline)),
+                      title: Text((_names[u] ?? '').isEmpty ? 'مشارك' : _names[u]!, style: const TextStyle(color: Colors.white)),
+                      subtitle: _hands.contains(u) ? const Text('رفع يده', style: TextStyle(color: Color(0xFFF59E0B), fontWeight: FontWeight.w700)) : null,
+                      onTap: _hands.contains(u) ? () => _ctl(u, lowerHand: true) : null, // الضغط ينزّل اليد
+                      trailing: widget.moderator
+                          ? Row(mainAxisSize: MainAxisSize.min, children: [
+                              IconButton(
+                                tooltip: (_remoteMic[u] ?? false) ? 'قفل المايك' : 'فتح المايك',
+                                onPressed: () => _ctl(u, mic: !(_remoteMic[u] ?? false)),
+                                icon: Icon((_remoteMic[u] ?? false) ? Icons.mic : Icons.mic_off, color: (_remoteMic[u] ?? false) ? const Color(0xFF22C55E) : const Color(0xFFEF4444)),
+                              ),
+                              IconButton(
+                                tooltip: (_remoteCam[u] ?? false) ? 'قفل الكاميرا' : 'فتح الكاميرا',
+                                onPressed: () => _ctl(u, cam: !(_remoteCam[u] ?? false)),
+                                icon: Icon((_remoteCam[u] ?? false) ? Icons.videocam : Icons.videocam_off, color: (_remoteCam[u] ?? false) ? const Color(0xFF22C55E) : const Color(0xFFEF4444)),
+                              ),
+                            ])
+                          : null,
+                    ),
+                ],
               ),
-          ],
+            );
+          },
         ),
       ),
     );
@@ -823,6 +950,15 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
             Positioned.fill(child: _remoteGrid(engine)),
             // علامة مائية متحركة (IP + الهاتف + البريد) وأيقونة فهمت أعلى اليمين
             const Positioned.fill(child: MovingWatermark()),
+            if (SessionRecorder.isRecording)
+              Positioned(
+                top: 10, left: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: const Color(0xCCDC2626), borderRadius: BorderRadius.circular(12)),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.fiber_manual_record, size: 12, color: Colors.white), SizedBox(width: 4), Text('REC', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11))]),
+                ),
+              ),
             const Positioned(top: 8, right: 12, child: FahmtLogoBadge(size: 30)),
             // الشريط العلوي
             Positioned(
@@ -899,7 +1035,15 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           }),
           if (widget.moderator) _control(icon: _sharingScreen ? Icons.stop_screen_share : Icons.screen_share, label: _sharingScreen ? 'إيقاف المشاركة' : 'مشاركة الشاشة', active: _sharingScreen, onTap: _toggleScreenShare),
           _control(icon: Icons.chat_bubble_outline, label: _unread > 0 ? 'الشات ($_unread)' : 'الشات', active: _unread > 0, onTap: () async => _openChat()),
-          if (widget.moderator) _control(icon: Icons.people, label: 'المتصلون', onTap: () async => _showParticipants()),
+          if (!widget.moderator) _control(icon: Icons.back_hand, label: _handUp ? 'إنزال اليد' : 'رفع اليد', active: _handUp, onTap: () async => _toggleHand()),
+          if (widget.moderator) _control(icon: Icons.people, label: _hands.isEmpty ? 'المتصلون' : 'المتصلون ✋${_hands.length}', active: _hands.isNotEmpty, onTap: () async => _showParticipants()),
+          if (widget.moderator && (widget.requestId != null || widget.groupId != null)) _control(
+            icon: SessionRecorder.isRecording ? Icons.stop_circle : Icons.fiber_manual_record,
+            label: SessionRecorder.isRecording ? 'إيقاف التسجيل' : (_recStopped ? 'تم التسجيل' : 'تسجيل'),
+            active: SessionRecorder.isRecording,
+            color: SessionRecorder.isRecording ? const Color(0xFFDC2626) : const Color(0xFF303744),
+            onTap: _toggleRecording,
+          ),
           if (widget.moderator) _control(icon: Icons.add_circle_outline, label: 'المزيد', onTap: () async => _showTools()),
           _control(icon: Icons.call_end, label: 'إنهاء', color: const Color(0xFFDC2626), onTap: _endPressed),
         ].expand((w) => [w, const SizedBox(width: 14)]).toList()..removeLast(),
@@ -1339,4 +1483,30 @@ class _ChatSheetState extends State<_ChatSheet> {
       ),
     );
   }
+}
+
+/// يعيد بناء محتواه كل 700ms (لنافذة المتصلين: تتحدث مع وصول رفع اليد وتغيّر حالة المايك والكاميرا).
+class _LiveBuilder extends StatefulWidget {
+  final WidgetBuilder builder;
+  const _LiveBuilder({required this.builder});
+  @override
+  State<_LiveBuilder> createState() => _LiveBuilderState();
+}
+
+class _LiveBuilderState extends State<_LiveBuilder> {
+  Timer? _t;
+  @override
+  void initState() {
+    super.initState();
+    _t = Timer.periodic(const Duration(milliseconds: 700), (_) { if (mounted) setState(() {}); });
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context);
 }

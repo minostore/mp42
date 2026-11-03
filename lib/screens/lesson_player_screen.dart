@@ -52,6 +52,7 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
     if (v.duration.inMilliseconds <= 0 || v.isPlaying) return;
     if (v.position.inMilliseconds < v.duration.inMilliseconds - 500) return;
     _endShown = true;
+    _saveProgress(completed: true).catchError((_) {}); // الدرس اكتمل → يزيد شريط تقدم الكورس
     _showEndPrompt();
   }
 

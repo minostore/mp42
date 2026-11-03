@@ -1,3 +1,4 @@
+import '../widgets/post_session_prompt.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../widgets/smart_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -225,6 +226,7 @@ class PortfolioDetailScreen extends StatefulWidget {
 class _PortfolioDetailScreenState extends State<PortfolioDetailScreen> {
   VideoPlayerController? _video;
   String? _loadedUrl;
+  bool _endShown = false;
 
   Future<void> _initVideo(String url) async {
     if (_loadedUrl == url) return;
@@ -232,6 +234,16 @@ class _PortfolioDetailScreenState extends State<PortfolioDetailScreen> {
     final c = VideoPlayerController.networkUrl(Uri.parse(url));
     await c.initialize();
     if (!mounted) { await c.dispose(); return; }
+    c.addListener(() {
+      final v = c.value;
+      if (!_endShown && mounted && v.duration.inMilliseconds > 0 && !v.isPlaying && v.position.inMilliseconds >= v.duration.inMilliseconds - 500) {
+        _endShown = true;
+        showAskNowPrompt(context, secondLabel: 'إغلاق').then((r) {
+          if (!mounted) return;
+          if (r == 'ask') context.push('/requests/new');
+        });
+      }
+    });
     setState(() => _video = c);
   }
 

@@ -25,6 +25,8 @@ class ScreenRecordService : Service() {
     companion object {
         @Volatile var instance: ScreenRecordService? = null
         @Volatile var lastError: String? = null
+        /** يُستدعى عند توقف التسجيل لأي سبب (لإعادة حجب الشاشة). */
+        @Volatile var onStopped: (() -> Unit)? = null
         const val CHANNEL_ID = "fahmt_screen_record"
         const val NOTIF_ID = 4711
         const val EXTRA_RESULT_CODE = "rc"
@@ -121,6 +123,7 @@ class ScreenRecordService : Service() {
         try { projection?.stop() } catch (_: Exception) {}
         recorder = null; display = null; projection = null
         if (instance === this) instance = null
+        try { onStopped?.invoke() } catch (_: Exception) {}
     }
 
     override fun onDestroy() {

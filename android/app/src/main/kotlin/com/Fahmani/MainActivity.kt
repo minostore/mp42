@@ -32,10 +32,25 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // تم إلغاء حماية الشاشة: لقطات الشاشة وتسجيل الشاشة مسموحان (لا FLAG_SECURE ولا منع لالتقاط الصوت).
-        disableScreenProtection()
-        blockAudioCapture() // الاسم قديم: صار يسمح بالتقاط الصوت
+        // حماية الشاشة: لا لقطات ولا تسجيل شاشة من أي تطبيق آخر. الاستثناء الوحيد: تسجيل جلسات فهمت نفسه
+        // (يُرفع الحجب مؤقتًا أثناء التسجيل الذي يبدأه المستخدم داخل التطبيق ثم يعود فور انتهائه).
+        applyProtection()
+        blockAudioCapture()
+        ScreenRecordService.onStopped = { runOnUiThread { applyProtection() } }
     }
+
+    override fun onResume() {
+        super.onResume()
+        applyProtection()
+    }
+
+    /** يضع FLAG_SECURE إلا أثناء تسجيل فهمت نفسه. */
+    private fun applyProtection() {
+        if (ScreenRecordService.instance?.recording == true || recordingStarting) disableScreenProtection()
+        else enableScreenProtection()
+    }
+
+    @Volatile private var recordingStarting = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -71,7 +86,9 @@ class MainActivity : FlutterActivity() {
                 "start" -> startScreenRecord(call.argument<String>("path") ?: "", result)
                 "stop" -> {
                     val svc = ScreenRecordService.instance
-                    result.success(svc?.stopRecording() ?: false)
+                    val ok = svc?.stopRecording() ?: false
+                    applyProtection() // عودة الحجب فور انتهاء التسجيل
+                    result.success(ok)
                 }
                 "isRecording" -> result.success(ScreenRecordService.instance?.recording == true)
                 "mux" -> {
@@ -94,8 +111,7 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "enable" -> {
-                    // الحماية ملغاة: لا نضع FLAG_SECURE
-                    disableScreenProtection()
+                    applyProtection()
                     result.success(true)
                 }
 
@@ -217,7 +233,7 @@ class MainActivity : FlutterActivity() {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                am.setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_ALL)
+                am.setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)
             }
             true
         } catch (_: Throwable) { false }
@@ -246,6 +262,8 @@ class MainActivity : FlutterActivity() {
         if (ScreenRecordService.instance?.recording == true) { result.success(true); return }
         pendingRecordResult = result
         pendingRecordPath = path
+        recordingStarting = true
+        disableScreenProtection() // بدونه يُسجَّل فيديو أسود؛ يعود الحجب فور انتهاء تسجيل فهمت
         try {
             File(path).parentFile?.mkdirs()
             val mgr = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -253,6 +271,8 @@ class MainActivity : FlutterActivity() {
             startActivityForResult(mgr.createScreenCaptureIntent(), recordRequestCode)
         } catch (e: Exception) {
             pendingRecordResult = null
+            recordingStarting = false
+            applyProtection()
             result.success(false)
         }
     }
@@ -266,23 +286,23 @@ class MainActivity : FlutterActivity() {
         }
         val res = pendingRecordResult
         pendingRecordResult = null
-        if (res == null) return
-        if (resultCode != RESULT_OK || data == null) { res.success(false); return }
+        if (res == null) { recordingStarting = false; applyProtection(); return }
+        if (resultCode != RESULT_OK || data == null) { recordingStarting = false; applyProtection(); res.success(false); return }
         try {
             val i = Intent(this, ScreenRecordService::class.java)
                 .putExtra(ScreenRecordService.EXTRA_RESULT_CODE, resultCode)
                 .putExtra(ScreenRecordService.EXTRA_DATA, data)
                 .putExtra(ScreenRecordService.EXTRA_PATH, pendingRecordPath)
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
-        } catch (e: Exception) { res.success(false); return }
+        } catch (e: Exception) { recordingStarting = false; applyProtection(); res.success(false); return }
         // ننتظر حتى 4 ثوانٍ ليبدأ التسجيل فعليًا
         val h = Handler(Looper.getMainLooper())
         var tries = 0
         val check = object : Runnable {
             override fun run() {
                 tries++
-                if (ScreenRecordService.instance?.recording == true) res.success(true)
-                else if (ScreenRecordService.lastError != null || tries > 20) res.success(false)
+                if (ScreenRecordService.instance?.recording == true) { recordingStarting = false; res.success(true) }
+                else if (ScreenRecordService.lastError != null || tries > 20) { recordingStarting = false; applyProtection(); res.success(false) }
                 else h.postDelayed(this, 200)
             }
         }

@@ -21,7 +21,7 @@
         android:icon="@mipmap/ic_launcher"
         android:name=".MasarApplication"
         android:usesCleartextTraffic="false"
-        android:allowAudioPlaybackCapture="true"
+        android:allowAudioPlaybackCapture="false"
         tools:replace="android:label">
 
         <activity
