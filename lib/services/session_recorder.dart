@@ -168,7 +168,11 @@ class SessionRecorder {
         final meta = {for (final k in ['kind', 'groupId', 'sessionId', 'requestId', 'title']) k: (it[k] ?? '').toString()};
         try {
           if (!await _ensureMuxed(it)) {
-            await reportFailure(meta, 'لم يُنتج ملف تسجيل صالح على الجهاز');
+            final vp = (it['video'] ?? '').toString();
+            final vs = vp.isNotEmpty && await File(vp).exists() ? await File(vp).length() : 0;
+            String? ne;
+            try { ne = await _ch.invokeMethod<String>('lastError'); } catch (_) {}
+            await reportFailure(meta, 'لم يُنتج ملف تسجيل صالح على الجهاز (حجم الفيديو: $vs بايت، الحالة: ${it['status']}${(ne ?? '').isEmpty ? '' : '، $ne'})');
             await _removeFiles(it);
             await _remove(id);
             continue;

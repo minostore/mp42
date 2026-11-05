@@ -49,8 +49,9 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
   void _maybeShowEnd(VideoPlayerController c) {
     if (_endShown || !mounted) return;
     final v = c.value;
-    if (v.duration.inMilliseconds <= 0 || v.isPlaying) return;
-    if (v.position.inMilliseconds < v.duration.inMilliseconds - 500) return;
+    if (v.duration.inMilliseconds <= 0) return;
+    final atEnd = v.isCompleted || (!v.isPlaying && v.position.inMilliseconds >= v.duration.inMilliseconds - 500);
+    if (!atEnd) return;
     _endShown = true;
     _saveProgress(completed: true).catchError((_) {}); // الدرس اكتمل → يزيد شريط تقدم الكورس
     _showEndPrompt();
@@ -126,9 +127,9 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
       await controller.setPlaybackSpeed(_speed);
       if (await _isPreviewLesson()) {
         controller.addListener(_enforcePreviewLimit);
-      } else {
-        controller.addListener(() => _maybeShowEnd(controller));
       }
+      // رسالة «استفهم الآن» + «الدرس التالي» بعد انتهاء أي درس (المعاينة أيضًا)
+      controller.addListener(() => _maybeShowEnd(controller));
       await controller.play();
 
       if (!mounted) {

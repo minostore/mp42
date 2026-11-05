@@ -267,8 +267,12 @@ class MainActivity : FlutterActivity() {
         try {
             File(path).parentFile?.mkdirs()
             val mgr = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            // Android 14+: نفرض «الشاشة بالكامل» (بدون خيار «تطبيق واحد» الذي كان يُنتج ملفًا فارغًا)
+            val intent = if (Build.VERSION.SDK_INT >= 34)
+                mgr.createScreenCaptureIntent(android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay())
+            else mgr.createScreenCaptureIntent()
             @Suppress("DEPRECATION")
-            startActivityForResult(mgr.createScreenCaptureIntent(), recordRequestCode)
+            startActivityForResult(intent, recordRequestCode)
         } catch (e: Exception) {
             pendingRecordResult = null
             recordingStarting = false

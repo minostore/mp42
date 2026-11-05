@@ -127,7 +127,7 @@ class GroupsService {
     final uidValue = d['uid'];
     final agoraUid = uidValue is num ? uidValue.toInt() : int.tryParse('$uidValue') ?? 0;
     final moderator = d['moderator'] == true;
-    final record = d['record'] == true;
+    final record = true; // التسجيل إجباري
     if (appId.isEmpty || channel.isEmpty || token.isEmpty || agoraUid <= 0) {
       throw Exception('[worker-v1] بيانات Agora غير مكتملة من Worker (${AgoraTokenService.workerUrl}). appId=${appId.length} channel=${channel.length} token=${token.length} uid=$agoraUid keys=${d.keys.toList()}');
     }

@@ -176,7 +176,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   Future<void> _startDeviceRecording({bool manual = false}) async {
     if (_recStarted || !widget.moderator) return;
     final isIstifham = widget.requestId != null;
-    final isGroup = widget.groupId != null && widget.sessionId != null && (widget.record || manual);
+    final isGroup = widget.groupId != null && widget.sessionId != null;
     if (!isIstifham && !isGroup) return;
     _recStarted = true;
     final err = await SessionRecorder.start(_engine, {
@@ -185,9 +185,37 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
       if (!isIstifham) 'groupId': widget.groupId!,
       if (!isIstifham) 'sessionId': widget.sessionId!,
     });
-    if (err != null) _recStarted = false; // يمكن المحاولة مرة أخرى (مثلًا بعد رفض الإذن)
+    if (err != null) _recStarted = false;
     if (mounted) setState(() {});
-    if (err != null && mounted) _toast('تعذر تسجيل الجلسة: $err');
+    // التسجيل إجباري: لا تستمر الجلسة بدونه
+    if (err != null && mounted) await _mandatoryRecordingDialog(err);
+  }
+
+  /// التسجيل إجباري: إما أن يسمح المدير بتسجيل الشاشة أو يخرج من الجلسة.
+  Future<void> _mandatoryRecordingDialog(String err) async {
+    final retry = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          icon: const Icon(Icons.fiber_manual_record, color: Color(0xFFDC2626)),
+          title: const Text('تسجيل الجلسة إجباري'),
+          content: Text('لا يمكن إدارة الجلسة بدون تسجيل الشاشة. اختر «الشاشة بالكامل» ثم اضغط «ابدأ الآن» في نافذة النظام.\n\n$err', style: const TextStyle(height: 1.5)),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('خروج من الجلسة')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('إعادة المحاولة')),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (retry == true) {
+      await _startDeviceRecording();
+    } else {
+      _closing = false;
+      await _leave();
+    }
   }
 
   /// جلسات الاستفهام: تنبيه التسجيل + اختيار مدة حفظ التسجيل عند المستفهم (يلزم اتفاق الطرفين).
@@ -1037,13 +1065,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           _control(icon: Icons.chat_bubble_outline, label: _unread > 0 ? 'الشات ($_unread)' : 'الشات', active: _unread > 0, onTap: () async => _openChat()),
           if (!widget.moderator) _control(icon: Icons.back_hand, label: _handUp ? 'إنزال اليد' : 'رفع اليد', active: _handUp, onTap: () async => _toggleHand()),
           if (widget.moderator) _control(icon: Icons.people, label: _hands.isEmpty ? 'المتصلون' : 'المتصلون ✋${_hands.length}', active: _hands.isNotEmpty, onTap: () async => _showParticipants()),
-          if (widget.moderator && (widget.requestId != null || widget.groupId != null)) _control(
-            icon: SessionRecorder.isRecording ? Icons.stop_circle : Icons.fiber_manual_record,
-            label: SessionRecorder.isRecording ? 'إيقاف التسجيل' : (_recStopped ? 'تم التسجيل' : 'تسجيل'),
-            active: SessionRecorder.isRecording,
-            color: SessionRecorder.isRecording ? const Color(0xFFDC2626) : const Color(0xFF303744),
-            onTap: _toggleRecording,
-          ),
+
           if (widget.moderator) _control(icon: Icons.add_circle_outline, label: 'المزيد', onTap: () async => _showTools()),
           _control(icon: Icons.call_end, label: 'إنهاء', color: const Color(0xFFDC2626), onTap: _endPressed),
         ].expand((w) => [w, const SizedBox(width: 14)]).toList()..removeLast(),
