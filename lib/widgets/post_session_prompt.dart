@@ -12,6 +12,7 @@ Future<String?> showAskNowPrompt(
   BuildContext context, {
   required String secondLabel,
   bool secondEnabled = true,
+  bool withNotNow = false, // زر ثالث «ليس الآن» (للكورسات بجانب «الدرس التالي»)
 }) {
   return showDialog<String>(
     context: context,
@@ -27,6 +28,7 @@ Future<String?> showAskNowPrompt(
         actions: [
           FilledButton(onPressed: () => Navigator.pop(ctx, 'ask'), child: const Text('استفهم الآن')),
           OutlinedButton(onPressed: secondEnabled ? () => Navigator.pop(ctx, 'second') : null, child: Text(secondLabel)),
+          if (withNotNow) TextButton(onPressed: () => Navigator.pop(ctx, 'later'), child: const Text('ليس الآن')),
         ],
       ),
     ),

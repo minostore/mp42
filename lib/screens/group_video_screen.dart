@@ -41,7 +41,7 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
   Future<void> _showEndPrompt() async {
     if (_fullscreen) await _toggleFullscreen();
     if (!mounted) return;
-    final r = await showAskNowPrompt(context, secondLabel: 'إغلاق');
+    final r = await showAskNowPrompt(context, secondLabel: 'ليس الآن');
     if (!mounted) return;
     if (r == 'ask') {
       context.push('/requests/new');

@@ -65,7 +65,7 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
       if (i >= 0 && i + 1 < lessons.length) next = lessons[i + 1];
     } catch (_) {}
     if (!mounted) return;
-    final r = await showAskNowPrompt(context, secondLabel: 'الدرس التالي', secondEnabled: next != null);
+    final r = await showAskNowPrompt(context, secondLabel: 'الدرس التالي', secondEnabled: next != null, withNotNow: true);
     if (!mounted) return;
     if (r == 'ask') {
       context.push('/requests/new');

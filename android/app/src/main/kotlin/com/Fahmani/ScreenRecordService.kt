@@ -27,6 +27,8 @@ class ScreenRecordService : Service() {
         @Volatile var lastError: String? = null
         /** يُستدعى عند توقف التسجيل لأي سبب (لإعادة حجب الشاشة). */
         @Volatile var onStopped: (() -> Unit)? = null
+        /** يُستدعى لو أوقف النظام التسجيل (مثلًا بدأ Agora مشاركة شاشة بـ MediaProjection جديد يستبدل القديم). */
+        @Volatile var onSystemStopped: (() -> Unit)? = null
         const val CHANNEL_ID = "fahmt_screen_record"
         const val NOTIF_ID = 4711
         const val EXTRA_RESULT_CODE = "rc"
@@ -56,7 +58,12 @@ class ScreenRecordService : Service() {
             projection = proj
             // Android 14: يجب تسجيل callback قبل إنشاء VirtualDisplay
             proj.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() { stopRecording() }
+                override fun onStop() {
+                    // أندرويد يسمح بـ MediaProjection واحد فقط: بدء مشاركة شاشة (Agora) يوقف تسجيلنا
+                    val wasRecording = recording
+                    stopRecording()
+                    if (wasRecording) { try { onSystemStopped?.invoke() } catch (_: Exception) {} }
+                }
             }, Handler(Looper.getMainLooper()))
 
             val dm = resources.displayMetrics
@@ -118,10 +125,12 @@ class ScreenRecordService : Service() {
     }
 
     private fun cleanup() {
-        try { recorder?.release() } catch (_: Exception) {}
-        try { display?.release() } catch (_: Exception) {}
-        try { projection?.stop() } catch (_: Exception) {}
+        // نفرّغ الحقول أولًا لمنع إعادة الدخول (projection.stop() يستدعي callback)
+        val r = recorder; val d = display; val p = projection
         recorder = null; display = null; projection = null
+        try { r?.release() } catch (_: Exception) {}
+        try { d?.release() } catch (_: Exception) {}
+        try { p?.stop() } catch (_: Exception) {}
         if (instance === this) instance = null
         try { onStopped?.invoke() } catch (_: Exception) {}
     }

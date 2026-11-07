@@ -238,7 +238,7 @@ class _PortfolioDetailScreenState extends State<PortfolioDetailScreen> {
       final v = c.value;
       if (!_endShown && mounted && v.duration.inMilliseconds > 0 && !v.isPlaying && v.position.inMilliseconds >= v.duration.inMilliseconds - 500) {
         _endShown = true;
-        showAskNowPrompt(context, secondLabel: 'إغلاق').then((r) {
+        showAskNowPrompt(context, secondLabel: 'ليس الآن').then((r) {
           if (!mounted) return;
           if (r == 'ask') context.push('/requests/new');
         });

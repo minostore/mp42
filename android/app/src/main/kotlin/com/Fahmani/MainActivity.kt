@@ -81,7 +81,9 @@ class MainActivity : FlutterActivity() {
         }
 
         // تسجيل شاشة الجلسة على الجهاز ثم دمج الصوت ورفع الملف (من Dart)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "fahmt/screen_record").setMethodCallHandler { call, result ->
+        val recChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "fahmt/screen_record")
+        ScreenRecordService.onSystemStopped = { runOnUiThread { recChannel.invokeMethod("systemStopped", null) } }
+        recChannel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "start" -> startScreenRecord(call.argument<String>("path") ?: "", result)
                 "stop" -> {
@@ -97,6 +99,15 @@ class MainActivity : FlutterActivity() {
                     val o = call.argument<String>("out") ?: ""
                     Thread {
                         val ok = try { muxAudioVideo(v, a, o) } catch (e: Exception) { false }
+                        Handler(Looper.getMainLooper()).post { result.success(ok) }
+                    }.start()
+                }
+                "muxSegments" -> {
+                    val segs = (call.argument<List<Map<String, Any>>>("segments") ?: emptyList()).map { (it["path"] as String) to ((it["offsetMs"] as Number).toLong()) }
+                    val a = call.argument<String>("audio")
+                    val o = call.argument<String>("out") ?: ""
+                    Thread {
+                        val ok = try { muxSegmentsWithFallback(segs, a, o) } catch (e: Exception) { false }
                         Handler(Looper.getMainLooper()).post { result.success(ok) }
                     }.start()
                 }
@@ -367,6 +378,92 @@ class MainActivity : FlutterActivity() {
             return File(outPath).length() > 1024
         } finally {
             try { vEx.release() } catch (_: Exception) {}
+            try { aEx?.release() } catch (_: Exception) {}
+            try { muxer.release() } catch (_: Exception) {}
+        }
+    }
+
+    private fun muxSegmentsWithFallback(segs: List<Pair<String, Long>>, audioPath: String?, outPath: String): Boolean {
+        val outFile = File(outPath)
+        if (outFile.exists()) outFile.delete()
+        val good = segs.filter { File(it.first).let { f -> f.exists() && f.length() > 1024 } }
+        if (good.isEmpty()) return false
+        val withAudio = audioPath != null && File(audioPath).let { it.exists() && it.length() > 2048 }
+        if (withAudio) {
+            try { if (doMuxSegments(good, audioPath, outPath)) return true } catch (_: Exception) {}
+            if (outFile.exists()) outFile.delete()
+        }
+        return try { doMuxSegments(good, null, outPath) } catch (_: Exception) { false }
+    }
+
+    /** يدمج أجزاء الفيديو (كل جزء يبدأ في وقته النسبي offsetMs) + مسار الصوت المتصل في mp4 واحد. */
+    private fun doMuxSegments(segs: List<Pair<String, Long>>, audioPath: String?, outPath: String): Boolean {
+        val muxer = MediaMuxer(outPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        var aEx: MediaExtractor? = null
+        try {
+            val first = MediaExtractor()
+            first.setDataSource(segs[0].first)
+            var fIdx = -1
+            for (i in 0 until first.trackCount) { if (first.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true) { fIdx = i; break } }
+            if (fIdx < 0) { first.release(); return false }
+            val vOut = muxer.addTrack(first.getTrackFormat(fIdx))
+            first.release()
+
+            var aOut = -1
+            if (audioPath != null) {
+                val ex = MediaExtractor()
+                ex.setDataSource(audioPath)
+                var aIdx = -1
+                for (i in 0 until ex.trackCount) { if (ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) { aIdx = i; break } }
+                if (aIdx >= 0) { ex.selectTrack(aIdx); aOut = muxer.addTrack(ex.getTrackFormat(aIdx)); aEx = ex } else ex.release()
+            }
+            muxer.start()
+            val buf = ByteBuffer.allocate(1024 * 1024)
+            val info = MediaCodec.BufferInfo()
+            var lastPts = -1L
+            for ((path, offsetMs) in segs) {
+                val ex = MediaExtractor()
+                try {
+                    ex.setDataSource(path)
+                    var idx = -1
+                    for (i in 0 until ex.trackCount) { if (ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true) { idx = i; break } }
+                    if (idx < 0) continue
+                    ex.selectTrack(idx)
+                    val base = offsetMs * 1000L
+                    while (true) {
+                        buf.clear()
+                        val size = ex.readSampleData(buf, 0)
+                        if (size < 0) break
+                        var pts = ex.sampleTime + base
+                        if (pts <= lastPts) pts = lastPts + 1000
+                        info.offset = 0
+                        info.size = size
+                        info.presentationTimeUs = pts
+                        info.flags = if ((ex.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
+                        muxer.writeSampleData(vOut, buf, info)
+                        lastPts = pts
+                        ex.advance()
+                    }
+                } catch (_: Exception) {
+                } finally { try { ex.release() } catch (_: Exception) {} }
+            }
+            val ae = aEx
+            if (ae != null && aOut >= 0) {
+                while (true) {
+                    buf.clear()
+                    val size = ae.readSampleData(buf, 0)
+                    if (size < 0) break
+                    info.offset = 0
+                    info.size = size
+                    info.presentationTimeUs = ae.sampleTime
+                    info.flags = 0
+                    muxer.writeSampleData(aOut, buf, info)
+                    ae.advance()
+                }
+            }
+            muxer.stop()
+            return File(outPath).length() > 1024
+        } finally {
             try { aEx?.release() } catch (_: Exception) {}
             try { muxer.release() } catch (_: Exception) {}
         }

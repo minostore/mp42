@@ -26,7 +26,31 @@ class SessionRecorder {
   static RtcEngine? _engine;
 
   static bool get supported => Platform.isAndroid;
-  static bool get isRecording => _active != null;
+  static bool get isRecording => _active != null && _active!['paused'] != true;
+  /// التسجيل جارٍ لكن الفيديو متوقف مؤقتًا (النظام أوقف MediaProjection بسبب بدء مشاركة شاشة) وينتظر الاستكمال.
+  static bool get paused => _active != null && _active!['paused'] == true;
+  static bool get hasSession => _active != null;
+  /// يُستدعى عند توقف الفيديو من النظام.
+  static void Function()? onPaused;
+  static bool _handlerSet = false;
+
+  static void _ensureHandler() {
+    if (_handlerSet) return;
+    _handlerSet = true;
+    _ch.setMethodCallHandler((call) async {
+      if (call.method == 'systemStopped') _handleSystemStop();
+    });
+  }
+
+  static void _handleSystemStop() {
+    final a = _active;
+    if (a == null || a['paused'] == true) return;
+    final segs = (a['segments'] as List).cast<Map<String, dynamic>>();
+    if (segs.isNotEmpty && segs.last['endMs'] == null) segs.last['endMs'] = DateTime.now().millisecondsSinceEpoch;
+    a['paused'] = true;
+    _upsert(a);
+    try { onPaused?.call(); } catch (_) {}
+  }
 
   // ---------------------------------------------------------------- مخزن الانتظار
   static Future<List<Map<String, dynamic>>> _loadPending() async {
@@ -87,14 +111,15 @@ class SessionRecorder {
       final base = Directory('${dir.path}/recordings');
       if (!await base.exists()) await base.create(recursive: true);
       final key = (meta['kind'] == 'istifham' ? 'i_${meta['requestId']}' : 'g_${meta['groupId']}_${meta['sessionId']}');
-      final video = '${base.path}/$key.video.mp4';
+      final seg0 = '${base.path}/$key.seg0.mp4';
       final audio = '${base.path}/$key.audio.aac';
       final out = '${base.path}/$key.mp4';
-      for (final f in [video, audio, out]) {
+      for (final f in [seg0, audio, out]) {
         final file = File(f);
         if (await file.exists()) await file.delete();
       }
-      final ok = await _ch.invokeMethod<bool>('start', {'path': video}) ?? false;
+      _ensureHandler();
+      final ok = await _ch.invokeMethod<bool>('start', {'path': seg0}) ?? false;
       if (!ok) {
         String? err;
         try { err = await _ch.invokeMethod<String>('lastError'); } catch (_) {}
@@ -113,15 +138,20 @@ class SessionRecorder {
         audioOk = engine != null;
       } catch (_) {}
       _engine = engine;
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
       _active = {
         'id': key,
         ...meta,
-        'video': video,
+        'segments': [
+          {'path': seg0, 'startMs': nowMs, 'endMs': null}
+        ],
         'audio': audioOk ? audio : '',
+        'audioStartMs': nowMs,
         'out': out,
         'status': 'recording',
-        'startedMs': DateTime.now().millisecondsSinceEpoch,
+        'startedMs': nowMs,
         'attempts': 0,
+        'paused': false,
       };
       await _upsert(_active!); // لو أُغلق التطبيق أثناء التسجيل نستكمل ما تم حفظه لاحقًا
       return null;
@@ -129,6 +159,32 @@ class SessionRecorder {
       final why = 'تعذر بدء التسجيل: $e';
       await reportFailure(meta, why);
       return why;
+    }
+  }
+
+  /// يستكمل تسجيل الفيديو (جزء جديد) بعد أن أوقفه النظام. يرجع null عند النجاح أو رسالة السبب.
+  static Future<String?> resume() async {
+    final a = _active;
+    if (a == null) return 'لا توجد جلسة تسجيل';
+    if (a['paused'] != true) return null;
+    try {
+      final segs = (a['segments'] as List).cast<Map<String, dynamic>>();
+      final dir = File(segs.first['path'].toString()).parent.path;
+      final path = '$dir/${a['id']}.seg${segs.length}.mp4';
+      final f = File(path);
+      if (await f.exists()) await f.delete();
+      final ok = await _ch.invokeMethod<bool>('start', {'path': path}) ?? false;
+      if (!ok) {
+        String? err;
+        try { err = await _ch.invokeMethod<String>('lastError'); } catch (_) {}
+        return (err == null || err.isEmpty) ? 'لم يوافق المستخدم على إذن تسجيل الشاشة' : 'تعذر استكمال تسجيل الشاشة: $err';
+      }
+      segs.add({'path': path, 'startMs': DateTime.now().millisecondsSinceEpoch, 'endMs': null});
+      a['paused'] = false;
+      await _upsert(a);
+      return null;
+    } catch (e) {
+      return 'تعذر استكمال التسجيل: $e';
     }
   }
 
@@ -140,21 +196,41 @@ class SessionRecorder {
     _active = null;
     try { await _engine?.stopAudioRecording(); } catch (_) {}
     _engine = null;
-    bool stopped = false;
-    try { stopped = await _ch.invokeMethod<bool>('stop') ?? false; } catch (_) {}
+    bool stopped = a['paused'] == true; // الجزء الأخير أوقفه النظام وانتهى بالفعل
+    if (!stopped) {
+      try { stopped = await _ch.invokeMethod<bool>('stop') ?? false; } catch (_) {}
+      final segs = (a['segments'] as List).cast<Map<String, dynamic>>();
+      if (segs.isNotEmpty && segs.last['endMs'] == null) segs.last['endMs'] = DateTime.now().millisecondsSinceEpoch;
+    }
+    a['paused'] = false;
     a['status'] = stopped ? 'stopped' : 'stopped_unclean';
     await _upsert(a);
     unawaited(uploadPending());
   }
 
   // ---------------------------------------------------------------- الدمج والرفع
+  /// الأجزاء كما حُفظت (ويدعم النسخ القديمة التي فيها مسار فيديو واحد 'video').
+  static List<Map<String, dynamic>> _segmentsOf(Map<String, dynamic> it) {
+    final raw = it['segments'];
+    if (raw is List && raw.isNotEmpty) return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    final v = (it['video'] ?? '').toString();
+    return v.isEmpty ? [] : [{'path': v, 'startMs': it['startedMs'] ?? 0, 'endMs': null}];
+  }
+
   static Future<bool> _ensureMuxed(Map<String, dynamic> it) async {
     final out = (it['out'] ?? '').toString();
     if (out.isNotEmpty && await File(out).exists() && await File(out).length() > 1024) return true;
-    final video = (it['video'] ?? '').toString();
-    if (video.isEmpty || !await File(video).exists() || await File(video).length() < 1024) return false;
+    final audioStart = (it['audioStartMs'] is num) ? (it['audioStartMs'] as num).toInt() : ((it['startedMs'] is num) ? (it['startedMs'] as num).toInt() : 0);
+    final segs = <Map<String, dynamic>>[];
+    for (final sg in _segmentsOf(it)) {
+      final p = (sg['path'] ?? '').toString();
+      if (p.isEmpty || !await File(p).exists() || await File(p).length() < 1024) continue;
+      final st = (sg['startMs'] is num) ? (sg['startMs'] as num).toInt() : audioStart;
+      segs.add({'path': p, 'offsetMs': (st - audioStart) < 0 ? 0 : (st - audioStart)});
+    }
+    if (segs.isEmpty) return false;
     final audio = (it['audio'] ?? '').toString();
-    return await _ch.invokeMethod<bool>('mux', {'video': video, 'audio': audio.isEmpty ? null : audio, 'out': out}) ?? false;
+    return await _ch.invokeMethod<bool>('muxSegments', {'segments': segs, 'audio': audio.isEmpty ? null : audio, 'out': out}) ?? false;
   }
 
   /// يرفع كل التسجيلات المعلّقة (يُستدعى بعد الإنهاء وعند فتح التطبيق). آمن للاستدعاء المتكرر.
@@ -168,8 +244,11 @@ class SessionRecorder {
         final meta = {for (final k in ['kind', 'groupId', 'sessionId', 'requestId', 'title']) k: (it[k] ?? '').toString()};
         try {
           if (!await _ensureMuxed(it)) {
-            final vp = (it['video'] ?? '').toString();
-            final vs = vp.isNotEmpty && await File(vp).exists() ? await File(vp).length() : 0;
+            var vs = 0;
+            for (final sg in _segmentsOf(it)) {
+              final vp = (sg['path'] ?? '').toString();
+              if (vp.isNotEmpty && await File(vp).exists()) vs += await File(vp).length();
+            }
             String? ne;
             try { ne = await _ch.invokeMethod<String>('lastError'); } catch (_) {}
             await reportFailure(meta, 'لم يُنتج ملف تسجيل صالح على الجهاز (حجم الفيديو: $vs بايت، الحالة: ${it['status']}${(ne ?? '').isEmpty ? '' : '، $ne'})');
@@ -207,8 +286,8 @@ class SessionRecorder {
   }
 
   static Future<void> _removeFiles(Map<String, dynamic> it) async {
-    for (final k in ['video', 'audio', 'out']) {
-      final p = (it[k] ?? '').toString();
+    final paths = <String>[(it['audio'] ?? '').toString(), (it['out'] ?? '').toString(), (it['video'] ?? '').toString(), ..._segmentsOf(it).map((e) => (e['path'] ?? '').toString())];
+    for (final p in paths) {
       if (p.isEmpty) continue;
       try { final f = File(p); if (await f.exists()) await f.delete(); } catch (_) {}
     }
