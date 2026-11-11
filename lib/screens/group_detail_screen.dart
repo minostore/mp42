@@ -81,12 +81,12 @@ class GroupDetailScreen extends StatelessWidget {
                             subtitle: (d) => '${d['questionCount'] ?? 0} سؤال',
                             onOpen: (id, title) => context.push('/group/$groupId/quiz/$id'),
                           ),
-                          _ContentList(
+                          _RefreshOnOpen(groupId: groupId, child: _ContentList(
                             groupId: groupId, kind: 'recordings', icon: Icons.slow_motion_video, empty: 'لا توجد جلسات مسجلة بعد',
                             ready: (d) => d['status'] == 'ready',
                             subtitle: (d) => d['status'] == 'ready' ? _dur(d['durationSec']) : (d['status'] == 'failed' ? 'تعذر حفظ التسجيل: ${(d['error'] ?? '').toString()}' : 'جارٍ المعالجة'),
                             onOpen: (id, title) => context.push('/group/$groupId/video/$id?title=${Uri.encodeComponent(title)}&kind=recordings'),
-                          ),
+                          )),
                           if (showStudents) GroupStudentsTab(groupId: groupId, role: role),
                         ],
                       ),
@@ -281,4 +281,25 @@ class _GroupSessionScreenState extends State<GroupSessionScreen> {
       ),
     );
   }
+}
+
+
+/// عند فتح قسم «الجلسات المسجلة»: يطلب من السيرفر فحص التسجيلات التي بانتظار وصول الملف إلى التخزين وتحويلها إلى «جاهزة».
+class _RefreshOnOpen extends StatefulWidget {
+  final String groupId;
+  final Widget child;
+  const _RefreshOnOpen({required this.groupId, required this.child});
+  @override
+  State<_RefreshOnOpen> createState() => _RefreshOnOpenState();
+}
+
+class _RefreshOnOpenState extends State<_RefreshOnOpen> {
+  @override
+  void initState() {
+    super.initState();
+    FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('refreshGroupRecordings').call<Map<String, dynamic>>({'groupId': widget.groupId}).then((_) {}, onError: (Object _) {});
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

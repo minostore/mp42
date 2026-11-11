@@ -1,3 +1,4 @@
+import '../services/session_recorder.dart';
 import '../services/api_functions.dart';
 import 'package:go_router/go_router.dart';
 import '../widgets/post_session_prompt.dart';
@@ -20,6 +21,9 @@ import 'package:permission_handler/permission_handler.dart';
 /// - المايك والكاميرا مقفولين عند الدخول، والمستخدم يفتحهم بنفسه.
 /// - المدرّس (moderator) يقدر: يشارك الشاشة، يفتح السبورة التفاعلية، ويشارك ملف (PDF/صورة) للطلبة.
 /// - السبورة والملفات بتتبعت للطلبة عن طريق Agora data stream (بدون أي خادم إضافي).
+/// التسجيل صار عبر «بوت فهمت» على السيرفر (ينضم كمشاهد خفي ويسجّل الجلسة كاملة)، فلا حاجة لتسجيل الشاشة من الجهاز.
+const bool kDeviceRecordingEnabled = false;
+
 class AgoraMeetingRoom extends StatefulWidget {
   final String appId;
   final String channel;
@@ -87,6 +91,9 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   final Map<int, bool> _remoteMic = <int, bool>{}; // عند المدير: حالة مايك كل طالب
   final Map<int, bool> _remoteCam = <int, bool>{}; // عند المدير: حالة كاميرا كل طالب
   bool _camForceOff = false; // عند الطالب: المدير أغلق كاميرته
+  bool _recStopped = false; // التسجيل لا يُعاد بدؤه في نفس الجلسة بعد إيقافه
+  bool _resuming = false;
+  Timer? _recWatch;
   bool _speakerOn = true;
   bool _sharingScreen = false;
   bool _busy = true;
@@ -143,11 +150,91 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     _initialize();
     _watchSession();
     if (widget.requestId != null) WidgetsBinding.instance.addPostFrameCallback((_) => _istifhamRecordingNotice());
+    if (widget.requestId == null && widget.groupId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _toast('تُسجَّل هذه الجلسة تلقائيًا (فيديو وصوت وسبورة وملفات وشات)'); });
+    }
   }
 
-  // التسجيل يتم بالكامل بواسطة بوت المنصة على السيرفر (Agora Cloud Recording): لا يُطلب من أحد تسجيل شاشته،
-  // ولا يتأثر بمشاركة الشاشة أو بخروج أي مشارك.
-  bool get _botRecorded => widget.record || widget.requestId != null;
+  bool _recStarted = false;
+
+  /// زر «تسجيل»: يبدأ/يوقف تسجيل شاشة الجلسة كاملة (الاجتماع + الملفات والسبورة والشاشة المشاركة والشات وأي شيء يظهر على الشاشة).
+  Future<void> _toggleRecording() async {
+    if (SessionRecorder.isRecording) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('إيقاف التسجيل؟'),
+          content: const Text('سيتوقف التسجيل ويُرفع إلى التخزين. لا يمكن إعادة بدئه في نفس الجلسة.'),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('متابعة التسجيل')), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('إيقاف'))],
+        ),
+      );
+      if (ok != true) return;
+      await SessionRecorder.stopAndUpload();
+      _recStopped = true;
+      if (mounted) { setState(() {}); _toast('تم إيقاف التسجيل وجاري رفعه في الخلفية'); }
+      return;
+    }
+    if (_recStopped) { _toast('تم تسجيل هذه الجلسة بالفعل'); return; }
+    await _startDeviceRecording(manual: true);
+    if (mounted) setState(() {});
+  }
+
+  /// تسجيل الجلسة من جهاز صاحبها (المدير/المُفهم): شاشة + صوت ثم رفع إلى R2 (بدل Agora السحابي).
+  /// يبدأ تلقائيًا في جلسات الاستفهام والجلسات المنشأة بخيار التسجيل، وإلا بطلب المدير من زر «تسجيل».
+  Future<void> _startDeviceRecording({bool manual = false}) async {
+    if (!kDeviceRecordingEnabled) return;
+    if (_recStarted || !widget.moderator) return;
+    final isIstifham = widget.requestId != null;
+    final isGroup = widget.groupId != null && widget.sessionId != null;
+    if (!isIstifham && !isGroup) return;
+    _recStarted = true;
+    SessionRecorder.onPaused = () {
+      if (!mounted) return;
+      setState(() {});
+      _toast('توقف تسجيل الفيديو مؤقتًا بسبب مشاركة الشاشة، وسيُستكمل بعد إيقافها');
+    };
+    // يستكمل تلقائيًا الجزء المتوقف متى لم تعد الشاشة مُشارَكة
+    _recWatch ??= Timer.periodic(const Duration(seconds: 2), (_) {
+      if (SessionRecorder.paused && !_sharingScreen && !_resuming && !_closing && mounted) _ensureRecording();
+    });
+    final err = await SessionRecorder.start(_engine, {
+      'kind': isIstifham ? 'istifham' : 'group',
+      if (isIstifham) 'requestId': widget.requestId!,
+      if (!isIstifham) 'groupId': widget.groupId!,
+      if (!isIstifham) 'sessionId': widget.sessionId!,
+    });
+    if (err != null) _recStarted = false;
+    if (mounted) setState(() {});
+    // التسجيل إجباري: لا تستمر الجلسة بدونه
+    if (err != null && mounted) await _mandatoryRecordingDialog(err);
+  }
+
+  /// التسجيل إجباري: إما أن يسمح المدير بتسجيل الشاشة أو يخرج من الجلسة.
+  Future<void> _mandatoryRecordingDialog(String err) async {
+    final retry = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          icon: const Icon(Icons.fiber_manual_record, color: Color(0xFFDC2626)),
+          title: const Text('تسجيل الجلسة إجباري'),
+          content: Text('لا يمكن إدارة الجلسة بدون تسجيل الشاشة. اختر «الشاشة بالكامل» ثم اضغط «ابدأ الآن» في نافذة النظام.\n\n$err', style: const TextStyle(height: 1.5)),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('خروج من الجلسة')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('إعادة المحاولة')),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (retry == true) {
+      await _ensureRecording();
+    } else {
+      _closing = false;
+      await _leave();
+    }
+  }
 
   /// جلسات الاستفهام: تنبيه التسجيل + اختيار مدة حفظ التسجيل عند المستفهم (يلزم اتفاق الطرفين).
   Future<void> _istifhamRecordingNotice() async {
@@ -230,6 +317,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
             _streamId = await engine.createDataStream(const DataStreamConfig(syncWithAudio: false, ordered: true));
             _sendHello();
           } catch (_) {}
+          _startDeviceRecording();
         },
         onUserJoined: (connection, remoteUid, elapsed) {
           if (mounted) setState(() => _remoteUsers.add(remoteUid));
@@ -397,6 +485,17 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     if (engine == null) return;
     try {
       if (!_sharingScreen) {
+        if (SessionRecorder.hasSession) {
+          final go = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('مشاركة الشاشة وتسجيل الجلسة'),
+              content: const Text('يسمح أندرويد بتسجيل شاشة واحد فقط في نفس الوقت، لذلك سيتوقف تسجيل الفيديو مؤقتًا أثناء مشاركة الشاشة (الصوت يستمر)، وبعد إيقاف المشاركة سيُطلب منك استكمال التسجيل.', style: TextStyle(height: 1.5)),
+              actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('متابعة'))],
+            ),
+          );
+          if (go != true) return;
+        }
         await engine.startScreenCapture(const ScreenCaptureParameters2(
           captureAudio: true,
           captureVideo: true,
@@ -420,51 +519,32 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           publishCameraTrack: !_cameraOff,
         ));
         if (mounted) setState(() => _sharingScreen = false);
+        _ensureRecording(); // استكمال تسجيل الفيديو بعد انتهاء المشاركة
       }
     } catch (e) {
       _toast('تعذرت مشاركة الشاشة: $e');
     }
   }
 
-  // ===== سجل أحداث الجلسة لبوت التسجيل =====
-  // مدير الجلسة يكتب كل ما يظهر للجميع (سبورة، ملف مشارَك وصفحته، شات، أسماء) في Firestore على دفعات،
-  // وصفحة التسجيل التي يصوّرها بوت المنصة تعيد عرضها. لا يُسجَّل أي شيء على جهاز أحد.
-  static const _eventTypes = {'b', 'x', 's', 'e', 'f', 'g', 'fc', 'c', 'n'};
-  final List<Map<String, dynamic>> _evBuf = [];
-  Timer? _evTimer;
-
-  CollectionReference<Map<String, dynamic>>? get _evCol {
-    final db = FirebaseFirestore.instance;
-    if (widget.requestId != null) return db.collection('istifhams').doc(widget.requestId).collection('events');
-    if (widget.groupId != null && widget.sessionId != null) return db.collection('groups').doc(widget.groupId).collection('sessions').doc(widget.sessionId).collection('events');
-    return null;
-  }
-
-  void _logEvent(Map<String, dynamic> m) {
-    if (!widget.moderator || !_eventTypes.contains(m['t']) || _evCol == null) return;
-    _evBuf.add(m);
-    _evTimer ??= Timer(const Duration(milliseconds: 700), _flushEvents);
-  }
-
-  Future<void> _flushEvents() async {
-    _evTimer?.cancel();
-    _evTimer = null;
-    final col = _evCol;
-    if (_evBuf.isEmpty || col == null) return;
-    final ev = List<Map<String, dynamic>>.from(_evBuf);
-    _evBuf.clear();
+  /// يضمن استمرار التسجيل: يستكمل الجزء المتوقف (بعد مشاركة الشاشة) أو يبدأ التسجيل لو لم يبدأ.
+  Future<void> _ensureRecording() async {
+    if (_resuming || _closing || !mounted) return;
+    _resuming = true;
     try {
-      await col.add({'at': DateTime.now().millisecondsSinceEpoch, 'ev': ev});
-    } catch (_) {
-      // فشل مؤقت (نت): نعيد الأحداث للطابور لتُكتب في الدفعة التالية
-      _evBuf.insertAll(0, ev);
-      _evTimer ??= Timer(const Duration(seconds: 3), _flushEvents);
+      if (SessionRecorder.paused) {
+        final err = await SessionRecorder.resume();
+        if (err != null && mounted) await _mandatoryRecordingDialog(err);
+      } else if (!SessionRecorder.hasSession && !_recStarted) {
+        await _startDeviceRecording();
+      }
+      if (mounted) setState(() {});
+    } finally {
+      _resuming = false;
     }
   }
 
   // ===== data stream =====
   void _send(Map<String, dynamic> msg) {
-    _logEvent(msg['t'] == 'n' ? {...msg, 'uid': widget.uid} : msg);
     final engine = _engine;
     final id = _streamId;
     if (engine == null || id == null) return;
@@ -480,7 +560,6 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
       final m = jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
       switch (m['t']) {
         case 'n': // اسم مشارك (+ هل هو مدير الاجتماع)
-          _logEvent({'t': 'n', 'uid': fromUid, 'n': (m['n'] ?? '').toString()});
           if (!mounted) return;
           setState(() {
             _names[fromUid] = (m['n'] ?? '').toString();
@@ -518,7 +597,6 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
           if (!mounted) return;
           final txt = (m['x'] ?? '').toString();
           if (txt.trim().isEmpty) return;
-          _logEvent({'t': 'c', 'n': (m['n'] ?? _names[fromUid] ?? 'مشارك').toString(), 'x': txt});
           setState(() {
             _chat.add(_ChatMsg((m['n'] ?? _names[fromUid] ?? 'مشارك').toString(), txt, DateTime.now().millisecondsSinceEpoch, false));
             if (!_chatOpen) _unread++;
@@ -803,7 +881,12 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   Future<void> _leave() async {
     if (_closing) return;
     _closing = true;
-    await _flushEvents(); // آخر أحداث السبورة/الشات قبل المغادرة
+    // إنهاء تسجيل الجهاز وبدء الرفع في الخلفية قبل مغادرة القناة
+    _recWatch?.cancel();
+    if (SessionRecorder.hasSession) {
+      await SessionRecorder.stopAndUpload();
+      if (mounted) _toast('جاري رفع تسجيل الجلسة في الخلفية، لا تغلق التطبيق حتى ينتهي');
+    }
     final lastOut = _remoteUsers.isEmpty;
     try { await _engine?.leaveChannel(); } catch (_) {}
     // جلسة استفهام: آخر من يخرج يُنهي التسجيل ويحفظه للإدارة
@@ -847,7 +930,6 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     );
     if (choice == 'leave') return _leave();
     if (choice == 'end') {
-      await _flushEvents(); // آخر ما رُسم/كُتب يصل لبوت التسجيل قبل إيقافه
       try {
         await widget.onEndForAll!();
       } catch (e) {
@@ -923,7 +1005,8 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
   void dispose() {
     _sessionSub?.cancel();
     _flushTimer?.cancel();
-    _evTimer?.cancel();
+    _recWatch?.cancel();
+    if (SessionRecorder.hasSession) unawaited(SessionRecorder.stopAndUpload());
     _chatC.dispose();
     _chatScroll.dispose();
     final engine = _engine;
@@ -948,7 +1031,7 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
             Positioned.fill(child: _remoteGrid(engine)),
             // علامة مائية متحركة (IP + الهاتف + البريد) وأيقونة فهمت أعلى اليمين
             const Positioned.fill(child: MovingWatermark()),
-            if (_botRecorded)
+            if (widget.requestId != null || widget.groupId != null)
               Positioned(
                 top: 10, left: 12,
                 child: Container(
