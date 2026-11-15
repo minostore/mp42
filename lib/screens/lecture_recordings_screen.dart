@@ -62,8 +62,14 @@ class _BodyState extends State<_Body> {
         return _Problem(title.isEmpty ? 'فشل رفع التسجيل' : title, cause, fix, (m['error'] ?? '').toString());
       }
       final raw = (m['error'] ?? '').toString();
-      return _Problem('فشل حفظ التسجيل', 'السبب التقني: $raw',
-          'تحقق من Vercel: AGORA_CUSTOMER_ID و AGORA_CUSTOMER_SECRET ومن تفعيل Cloud Recording في Agora Console. لو الخطأ allocate_timeout فهو مؤقت من Agora، أنهِ جلسة أخرى وجرّب مرة أخرى.', raw);
+      String hint;
+      if (raw.contains('[acquire]')) { hint = 'فشل حجز مورد التسجيل عند Agora: راجع AGORA_CUSTOMER_ID/SECRET، وتفعيل Cloud Recording (وتسجيل الصفحات) في Agora Console، والرصيد. الخطأ allocate_timeout/504 مؤقت من Agora.'; }
+      else if (raw.contains('[start]')) { hint = 'رفضت Agora بدء التسجيل: غالبًا إعدادات التخزين R2 (R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET) أو رابط الصفحة. اقرأ نص الخطأ.'; }
+      else if (raw.contains('[stop]')) { hint = 'تعذر إيقاف التسجيل أو توقفت الخدمة قبل الإنهاء: ربما خرجت Agora لأنها لم تستطع فتح recorder.html.'; }
+      else if (raw.contains('خرجت خدمة') || raw.contains('[query]')) { hint = 'بدأت Agora ثم توقفت فورًا: تأكد أن https://www.fahemt.online/recorder.html يفتح بدون تسجيل دخول ولا إعادة توجيه، وأن PLATFORM_URL في Vercel صحيح.'; }
+      else if (raw.contains('backuped')) { hint = 'سجّلت Agora لكن تعذر رفع الملف إلى R2 فحُفظ احتياطيًا لديها: راجع مفاتيح R2 وصلاحية الكتابة على الـ bucket.'; }
+      else { hint = 'اقرأ السبب التقني أعلاه؛ هو الرد الحقيقي من Agora أو السيرفر.'; }
+      return _Problem('فشل حفظ التسجيل', 'السبب التقني: $raw', hint, raw);
     }
     if (st == 'uploading') {
       final started = (m['uploadStartedAtMs'] is num) ? (m['uploadStartedAtMs'] as num).toInt() : 0;

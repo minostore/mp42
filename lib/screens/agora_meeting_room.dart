@@ -241,7 +241,12 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     final id = widget.requestId;
     if (id == null || !mounted) return;
     final fn = FirebaseFunctions.instanceFor(region: 'us-central1');
-    try { await fn.httpsCallable('startIstifhamRecording').call<Map<String, dynamic>>({'requestId': id}); } catch (_) {}
+    try {
+      final rr = await fn.httpsCallable('startIstifhamRecording').call<Map<String, dynamic>>({'requestId': id});
+      if (rr.data['ok'] == false && mounted) _toast('تعذر بدء تسجيل الجلسة: ${rr.data['error'] ?? ''}');
+    } catch (e) {
+      if (mounted) _toast('تعذر بدء تسجيل الجلسة: $e');
+    }
     if (!mounted) return;
     var days = 0;
     await showDialog<void>(

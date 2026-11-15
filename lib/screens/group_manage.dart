@@ -168,6 +168,18 @@ Future<void> showCreateSessionDialog(BuildContext context, String groupId) async
       'groupId': groupId, 'title': titleC.text.trim(), 'record': record,
     });
     final sid = (r.data['sessionId'] ?? '').toString();
+    final warn = (r.data['recordingWarning'] ?? '').toString();
+    if (warn.isNotEmpty && context.mounted) {
+      // السبب الحقيقي لتعذر بدء التسجيل (من Agora/الإعدادات) يظهر فورًا
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('تعذر بدء تسجيل الجلسة'),
+          content: SingleChildScrollView(child: SelectableText(warn, textDirection: TextDirection.ltr, style: const TextStyle(height: 1.5))),
+          actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('متابعة الجلسة'))],
+        ),
+      );
+    }
     if (sid.isNotEmpty && context.mounted) context.push('/group/$groupId/session/$sid');
   } catch (e) {
     _snack(context, 'تعذر بدء الجلسة: ${_msg(e)}');
