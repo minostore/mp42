@@ -1,3 +1,4 @@
+import '../widgets/copy_error.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -182,13 +183,19 @@ class _ContentList extends StatelessWidget {
                   final d = docs[i].data();
                   final title = (d['title'] ?? 'بدون عنوان').toString();
                   final ok = ready == null ? true : ready!(d);
+                  final failed = d['status'] == 'failed';
+                  final errText = (d['error'] ?? '').toString();
                   return Card(
                     child: ListTile(
-                      leading: Icon(icon, size: 30),
+                      leading: Icon(failed ? Icons.error_outline : icon, size: 30, color: failed ? const Color(0xFFB91C1C) : null),
                       title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: subtitle == null ? null : Text(subtitle!(d)),
-                      trailing: ok ? const Icon(Icons.chevron_left) : const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                      onTap: ok ? () => onOpen(docs[i].id, title) : null,
+                      subtitle: subtitle == null ? null : Text(subtitle!(d), maxLines: failed ? 3 : null, overflow: failed ? TextOverflow.ellipsis : null),
+                      trailing: failed
+                          ? IconButton(tooltip: 'نسخ الخطأ', icon: const Icon(Icons.copy), onPressed: () => copyErrorText(context, errText.isEmpty ? 'فشل التسجيل بدون تفاصيل' : errText))
+                          : (ok ? const Icon(Icons.chevron_left) : const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+                      onTap: failed
+                          ? () => showErrorWithCopy(context, title: 'سبب فشل التسجيل', text: errText.isEmpty ? 'فشل التسجيل بدون تفاصيل' : errText)
+                          : (ok ? () => onOpen(docs[i].id, title) : null),
                     ),
                   );
                 },

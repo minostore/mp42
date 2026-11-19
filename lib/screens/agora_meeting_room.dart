@@ -1,3 +1,4 @@
+import '../widgets/copy_error.dart';
 import '../services/session_recorder.dart';
 import '../services/api_functions.dart';
 import 'package:go_router/go_router.dart';
@@ -243,9 +244,9 @@ class _AgoraMeetingRoomState extends State<AgoraMeetingRoom> {
     final fn = FirebaseFunctions.instanceFor(region: 'us-central1');
     try {
       final rr = await fn.httpsCallable('startIstifhamRecording').call<Map<String, dynamic>>({'requestId': id});
-      if (rr.data['ok'] == false && mounted) _toast('تعذر بدء تسجيل الجلسة: ${rr.data['error'] ?? ''}');
+      if (rr.data['ok'] == false && mounted) await showErrorWithCopy(context, title: 'تعذر بدء تسجيل الجلسة', text: '${rr.data['error'] ?? ''}');
     } catch (e) {
-      if (mounted) _toast('تعذر بدء تسجيل الجلسة: $e');
+      if (mounted) await showErrorWithCopy(context, title: 'تعذر بدء تسجيل الجلسة', text: '$e');
     }
     if (!mounted) return;
     var days = 0;

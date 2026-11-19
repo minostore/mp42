@@ -1,3 +1,4 @@
+import '../widgets/copy_error.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -226,6 +227,14 @@ class _ProblemBox extends StatelessWidget {
               child: Text('المطلوب: ${problem.fix}', style: const TextStyle(fontSize: 12, color: Color(0xFF064E3B))),
             ),
           if (problem.technical.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: SelectableText(problem.technical, textDirection: TextDirection.ltr, style: const TextStyle(fontSize: 10, color: Colors.black54))),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              onPressed: () => copyErrorText(context, [problem.title, if (problem.cause.isNotEmpty) 'السبب: ${problem.cause}', if (problem.fix.isNotEmpty) 'المطلوب: ${problem.fix}', if (problem.technical.isNotEmpty) problem.technical].join('\n')),
+              icon: const Icon(Icons.copy, size: 16),
+              label: const Text('نسخ الخطأ', style: TextStyle(fontSize: 12)),
+            ),
+          ),
         ],
       ),
     );

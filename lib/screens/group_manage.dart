@@ -1,3 +1,4 @@
+import '../widgets/copy_error.dart';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -176,7 +177,10 @@ Future<void> showCreateSessionDialog(BuildContext context, String groupId) async
         builder: (ctx) => AlertDialog(
           title: const Text('تعذر بدء تسجيل الجلسة'),
           content: SingleChildScrollView(child: SelectableText(warn, textDirection: TextDirection.ltr, style: const TextStyle(height: 1.5))),
-          actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('متابعة الجلسة'))],
+          actions: [
+            TextButton.icon(onPressed: () => copyErrorText(ctx, warn), icon: const Icon(Icons.copy, size: 18), label: const Text('نسخ الخطأ')),
+            FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('متابعة الجلسة')),
+          ],
         ),
       );
     }
